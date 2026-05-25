@@ -6,3 +6,4 @@
 guardian-server/*.log
 guardian-server/node_modules/
 guardian-server/server-config.json
+!railway.json
