@@ -1,9 +1,13 @@
 # Guardian - only signaling server files
 *.*
 !.gitignore
-!guardian-server/
-!guardian-server/**/*
+!railway.json
+!package.json
+!package-lock.json
+!signaling-server.js
+!server-config.json
+!start.js
+!start-simple.bat
+!turn-server.js
 guardian-server/*.log
 guardian-server/node_modules/
-guardian-server/server-config.json
-!railway.json

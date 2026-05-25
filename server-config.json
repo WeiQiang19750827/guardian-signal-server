@@ -1,0 +1,19 @@
+{
+  "ipReport": {
+    "enabled": true,
+    "method": "gist",
+    "jsonbin": {
+      "apiKey": "",
+      "binId": ""
+    },
+    "gist": {
+      "githubToken": "",
+      "gistId": "b9cb007301388fdc60fd6e5a01285bea"
+    },
+    "gitee": {
+      "accessToken": "",
+      "gistId": ""
+    },
+    "interval": 60000
+  }
+}
