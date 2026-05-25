@@ -2,11 +2,11 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "cd guardian-server && npm install",
+    "buildCommand": "npm install",
     "watchPatterns": ["guardian-server/**"]
   },
   "deploy": {
-    "startCommand": "cd guardian-server && node signaling-server.js",
+    "startCommand": "node signaling-server.js",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 10,
     "restartPolicyType": "ON_FAILURE",
