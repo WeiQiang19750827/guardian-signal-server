@@ -1,7 +1,7 @@
 {
   "name": "guardian-signaling-server",
-  "version": "1.100",
-  "description": "Guardian P2P Signaling Server v1.100 - PeerJS + Relay hybrid",
+  "version": "1.101",
+  "description": "Guardian P2P Signaling Server v1.101 - PeerJS + Relay hybrid + CORS fix",
   "main": "signaling-server.js",
   "scripts": {
     "start": "node signaling-server.js"
