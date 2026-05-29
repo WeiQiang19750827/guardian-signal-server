@@ -413,7 +413,8 @@ function handleRelayPeer(wsConn, roomId, role) {
   wsConn.on('error', () => {});
 }
 
-relayWSS.on('connection', (wsConn, request, url) => {
+relayWSS.on('connection', (wsConn, request) => {
+  const url = new URL(request.url || '', 'http://localhost');
   handleRelayPeer(wsConn, url.searchParams.get('code') || url.searchParams.get('room'), url.searchParams.get('role'));
 });
 
@@ -422,7 +423,7 @@ server.on('upgrade', (request, socket, head) => {
   if (url.pathname.startsWith('/relay')) {
     try {
       relayWSS.handleUpgrade(request, socket, head, (wsConn) => {
-        relayWSS.emit('connection', wsConn, request, url);
+        relayWSS.emit('connection', wsConn, request);
       });
     } catch (e) {
       socket.destroy();
