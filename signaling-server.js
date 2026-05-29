@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '1.99';
+const VERSION = '1.100';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -260,6 +260,49 @@ app.post('/rooms/:roomId/leave', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+const PAIR_TTL = 300000;
+
+const pairs = new Map();
+
+app.post('/pair', (req, res) => {
+  const code = generateRoomId();
+  pairs.set(code, {
+    code: code,
+    createdBy: null,
+    joinedBy: null,
+    createdAt: Date.now()
+  });
+  log.ok('pair created: ' + code);
+  res.json({ status: 'ok', code: code, expiresIn: PAIR_TTL / 1000, role: 'guardian' });
+});
+
+app.post('/pair/:code/join', (req, res) => {
+  const pair = pairs.get(req.params.code);
+  if (!pair) {
+    return res.status(404).json({ error: 'pair code not found or expired' });
+  }
+  if (pair.joinedBy) {
+    return res.status(400).json({ error: 'pair already joined' });
+  }
+  pair.joinedBy = true;
+  log.ok('pair joined: ' + req.params.code);
+  res.json({ status: 'ok', code: req.params.code, role: 'protected', roomId: req.params.code });
+});
+
+function cleanupExpiredPairs() {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [code, pair] of pairs) {
+    if (!pair.joinedBy && (now - pair.createdAt) > PAIR_TTL) {
+      pairs.delete(code);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) log.ok('cleaned ' + cleaned + ' expired pairs');
+}
+
+setInterval(cleanupExpiredPairs, 30000);
+
 function cleanupExpiredRooms() {
   const now = Date.now();
   let cleaned = 0;
@@ -416,7 +459,7 @@ server.on('upgrade', (request, socket, head) => {
       const ws = require('ws');
       const wss = new ws.WebSocket({ noServer: true });
       wss.handleUpgrade(request, socket, head, (wsConn) => {
-        const roomId = url.searchParams.get('room');
+        const roomId = url.searchParams.get('code') || url.searchParams.get('room');
         const role = url.searchParams.get('role');
         if (!roomId || !role) {
           wsConn.close();

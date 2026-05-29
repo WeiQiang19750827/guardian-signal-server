@@ -7,7 +7,7 @@ set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
 echo =============================================
-echo   Guardian Deploy Setup v1.99
+echo   Guardian Deploy Setup v1.100
 echo   One-time configuration tool
 echo =============================================
 echo.

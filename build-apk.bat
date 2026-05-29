@@ -1,5 +1,5 @@
 @echo off
-title Guardian Build APK v1.98
+title Guardian Build APK v1.1008
 color 0F
 setlocal enabledelayedexpansion
 
@@ -10,7 +10,7 @@ set ANDROID_HOME=%ROOT%android-sdk
 set ANDROID_SDK_ROOT=%ROOT%android-sdk
 
 echo =============================================
-echo   Guardian Build APK v1.99
+echo   Guardian Build APK v1.100
 echo =============================================
 echo.
 
@@ -44,13 +44,13 @@ echo [OK] Build successful
 :: Step 4: Copy APK
 echo [4/4] Copying APK to project root...
 cd /d "%ROOT%"
-copy /Y "%ROOT%guardian-app\platforms\android\app\build\outputs\apk\debug\app-debug.apk" "%ROOT%guardian-app-v1.98.apk"
+copy /Y "%ROOT%guardian-app\platforms\android\app\build\outputs\apk\debug\app-debug.apk" "%ROOT%guardian-app-v1.100.apk"
 echo [OK] APK: guardian-app-v1.99.apk
 
 echo.
 echo =============================================
 echo  Build Complete!
 echo =============================================
-echo  APK: guardian-app-v1.99.apk (%ROOT%)
+echo  APK: guardian-app-v1.100.apk (%ROOT%)
 echo.
 pause

@@ -1,5 +1,5 @@
 @echo off
-title Guardian Railway Deploy v1.99
+title Guardian Railway Deploy v1.100
 color 0F
 setlocal enabledelayedexpansion
 
@@ -95,7 +95,7 @@ echo =============================================
 echo  Step 4/5: Deploy to Railway
 echo =============================================
 echo.
-echo Deploying: signaling-server.js (v1.99, PeerJS+Relay)
+echo Deploying: signaling-server.js (v1.100, PeerJS+Relay)
 echo.
 
 railway up --detach

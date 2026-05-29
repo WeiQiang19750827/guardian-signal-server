@@ -1,5 +1,5 @@
 @echo off
-title Guardian Git Deploy v1.99
+title Guardian Git Deploy v1.100
 color 0F
 setlocal enabledelayedexpansion
 
@@ -42,7 +42,7 @@ if errorlevel 1 (
 echo [OK] Files staged
 
 :: Commit
-git commit -m "auto deploy v1.99"
+git commit -m "auto deploy v1.100"
 if errorlevel 1 (
     echo [ERROR] Commit failed
     pause

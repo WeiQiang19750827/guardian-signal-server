@@ -2,7 +2,7 @@
 title Guardian Server Check v1.99
 color 0F
 echo =============================================
-echo   Guardian Server Status Check v1.99
+echo   Guardian Server Status Check v1.100
 echo =============================================
 echo.
 echo Checking server: wss://guardian-signal-server-production.up.railway.app

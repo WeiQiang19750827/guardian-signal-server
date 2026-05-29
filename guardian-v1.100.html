@@ -86,24 +86,12 @@ input:focus { outline: none; border-color: #00d4aa; }
   </div>
 </div>
 
-<script src="lib/peerjs.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
 <script>
 const SERVER_WSS = 'wss://guardian-signal-server-production.up.railway.app';
 const SERVER_HTTP = 'https://guardian-signal-server-production.up.railway.app';
 
-var state = {
-  code: null,
-  role: null,
-  peer: null,
-  peerId: null,
-  relayWs: null,
-  relayConnected: false,
-  connected: false,
-  reconnectCount: 0,
-  maxRetries: 3,
-  reconnectTimer: null,
-  cleanupTimer: null,
-};
+var state = { code: null, role: null, peer: null, peerId: null, relayWs: null, relayConnected: false, connected: false, reconnectCount: 0, maxRetries: 3, reconnectTimer: null, cleanupTimer: null };
 
 function $(id) { return document.getElementById(id); }
 
@@ -117,11 +105,7 @@ function switchTab(tab) {
   setStatus('idle', '准备就绪');
 }
 
-function setStatus(type, msg) {
-  var el = $('statusBar');
-  el.textContent = msg;
-  el.className = 'status-bar status-' + type;
-}
+function setStatus(type, msg) { var el = $('statusBar'); el.textContent = msg; el.className = 'status-bar status-' + type; }
 
 function startGuarding() {
   $('startGuardBtn').disabled = true;
@@ -129,7 +113,6 @@ function startGuarding() {
   $('guardianWaitSection').classList.remove('hidden');
   $('pairCode').textContent = '------';
   setStatus('waiting', '正在创建配对...');
-
   fetch(SERVER_HTTP + '/pair', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(data) {
     if (data.code) {
       state.code = data.code;
@@ -148,14 +131,10 @@ function startGuarding() {
 
 function joinGuard() {
   var code = $('codeInput').value.trim();
-  if (!code || code.length !== 6) {
-    setStatus('error', '请输入6位配对码');
-    return;
-  }
+  if (!code || code.length !== 6) { setStatus('error', '请输入6位配对码'); return; }
   $('protectedInputSection').classList.add('hidden');
   $('protectedWaitSection').classList.remove('hidden');
   setStatus('waiting', '正在连接...');
-
   fetch(SERVER_HTTP + '/pair/' + code + '/join', { method: 'POST' }).then(function(r) {
     if (r.status === 404) { throw new Error('配对码无效或已过期'); }
     if (r.status === 400) { throw new Error('该配对码已被使用'); }
@@ -184,35 +163,17 @@ function connectRelay(code, role) {
     state.relayWs.onmessage = function(e) {
       try {
         var msg = JSON.parse(e.data);
-        if (msg.type === 'relay_ready') {
-          onConnected();
-        } else if (msg.type === 'relay_peer_joined') {
-          setStatus('waiting', '对方已加入');
-        } else if (msg.type === 'relay_peer_left') {
-          onDisconnected('对方已断开');
-        } else if (msg.type === 'relay_data') {
-        } else if (msg.type === 'relay_pong') {
-        }
+        if (msg.type === 'relay_ready') { onConnected(); }
+        else if (msg.type === 'relay_peer_joined') { setStatus('waiting', '对方已加入'); }
+        else if (msg.type === 'relay_peer_left') { onDisconnected('对方已断开'); }
       } catch(e) {}
     };
     state.relayWs.onclose = function() {
       state.relayConnected = false;
-      if (state.connected) {
-        onDisconnected('连接已断开');
-      } else {
-        setStatus('error', '连接失败，请重试');
-        resetUI();
-      }
+      state.connected ? onDisconnected('连接已断开') : (setStatus('error', '连接失败，请重试'), resetUI());
     };
-    state.relayWs.onerror = function() {
-      if (!state.connected) {
-        setStatus('error', '网络错误');
-      }
-    };
-  } catch(e) {
-    setStatus('error', '连接失败');
-    resetUI();
-  }
+    state.relayWs.onerror = function() { if (!state.connected) setStatus('error', '网络错误'); };
+  } catch(e) { setStatus('error', '连接失败'); resetUI(); }
 }
 
 function onConnected() {
@@ -220,32 +181,21 @@ function onConnected() {
   setStatus('connected', '已安全连接');
   $('connectedSection').classList.remove('hidden');
   $('connectedContent').classList.remove('hidden');
-  if (state.role === 'guardian') {
-    $('guardianWaitSection').classList.add('hidden');
-    $('guardianCodeSection').classList.add('hidden');
-  } else {
-    $('protectedWaitSection').classList.add('hidden');
-    $('protectedInputSection').classList.add('hidden');
-  }
+  if (state.role === 'guardian') { $('guardianWaitSection').classList.add('hidden'); $('guardianCodeSection').classList.add('hidden'); }
+  else { $('protectedWaitSection').classList.add('hidden'); $('protectedInputSection').classList.add('hidden'); }
 }
 
 function onDisconnected(msg) {
-  state.connected = false;
-  state.relayConnected = false;
+  state.connected = false; state.relayConnected = false;
   setStatus('error', msg || '连接已断开');
   if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
-  state.cleanupTimer = setTimeout(function() {
-    resetUI();
-  }, 3000);
+  state.cleanupTimer = setTimeout(function() { resetUI(); }, 3000);
 }
 
 function disconnect() {
-  state.connected = false;
-  stopKeepAlive();
+  state.connected = false; stopKeepAlive();
   if (state.relayWs) { try { state.relayWs.close(); } catch(e) {} state.relayWs = null; }
-  state.relayConnected = false;
-  state.code = null;
-  state.role = null;
+  state.relayConnected = false; state.code = null; state.role = null;
   resetUI();
 }
 
@@ -265,18 +215,11 @@ function resetUI() {
 function startKeepAlive() {
   stopKeepAlive();
   state.keepAliveTimer = setInterval(function() {
-    if (state.relayWs && state.relayWs.readyState === 1) {
-      state.relayWs.send(JSON.stringify({ type: 'relay_ping', t: Date.now() }));
-    }
+    if (state.relayWs && state.relayWs.readyState === 1) state.relayWs.send(JSON.stringify({ type: 'relay_ping', t: Date.now() }));
   }, 15000);
 }
 
-function stopKeepAlive() {
-  if (state.keepAliveTimer) {
-    clearInterval(state.keepAliveTimer);
-    state.keepAliveTimer = null;
-  }
-}
+function stopKeepAlive() { if (state.keepAliveTimer) { clearInterval(state.keepAliveTimer); state.keepAliveTimer = null; } }
 </script>
 </body>
 </html>

@@ -7,7 +7,9 @@
     "start": "node signaling-server.js"
   },
   "dependencies": {
-    "ws": "^8.16.0"
+    "express": "^4.21.0",
+    "peer": "^1.0.2",
+    "ws": "^8.21.0"
   },
   "engines": {
     "node": ">=18.0.0"
