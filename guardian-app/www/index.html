@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Guardian v1.103</title>
+<title>Guardian v1.104</title>
 <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -88,20 +88,13 @@ input:focus { outline: none; border-color: #00d4aa; }
 
 <script src="lib/peerjs.min.js"></script>
 <script>
-const SERVER_WSS = 'wss://guardian-signal-server-production.up.railway.app';
 const SERVER_HTTP = 'https://guardian-signal-server-production.up.railway.app';
 
 var state = {
   code: null,
   role: null,
-  peer: null,
-  peerId: null,
-  relayWs: null,
-  relayConnected: false,
   connected: false,
-  reconnectCount: 0,
-  maxRetries: 3,
-  reconnectTimer: null,
+  pollTimer: null,
   cleanupTimer: null,
 };
 
@@ -136,7 +129,7 @@ function startGuarding() {
       state.role = 'guardian';
       $('pairCode').textContent = data.code.split('').join(' ');
       setStatus('waiting', '等待对方输入配对码');
-      connectRelay(data.code, 'guardian');
+      startPolling(data.code, 'guardian');
     }
   }).catch(function(e) {
     setStatus('error', '创建失败，请检查网络');
@@ -164,7 +157,7 @@ function joinGuard() {
     state.code = code;
     state.role = 'protected';
     setStatus('waiting', '配对成功，建立连接...');
-    connectRelay(code, 'protected');
+    startPolling(code, 'protected');
   }).catch(function(e) {
     setStatus('error', e.message);
     $('protectedInputSection').classList.remove('hidden');
@@ -172,49 +165,31 @@ function joinGuard() {
   });
 }
 
-function connectRelay(code, role) {
-  var url = SERVER_WSS + '/relay?code=' + code + '&role=' + role;
-  try {
-    state.relayWs = new WebSocket(url);
-    state.relayWs.onopen = function() {
-      state.relayConnected = true;
-      setStatus('waiting', '信令通道已建立');
-      startKeepAlive();
-    };
-    state.relayWs.onmessage = function(e) {
-      try {
-        var msg = JSON.parse(e.data);
-        if (msg.type === 'relay_ready') {
-          onConnected();
-        } else if (msg.type === 'relay_peer_joined') {
-          setStatus('waiting', '对方已加入');
-        } else if (msg.type === 'relay_peer_left') {
-          onDisconnected('对方已断开');
-        } else if (msg.type === 'relay_data') {
-        } else if (msg.type === 'relay_pong') {
-        }
-      } catch(e) {}
-    };
-    state.relayWs.onclose = function(e) {
-      state.relayConnected = false;
-      if (state.connected) {
-        onDisconnected('连接已断开');
+function startPolling(code, role) {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(function() {
+    fetch(SERVER_HTTP + '/pair/' + code + '/status').then(function(r) {
+      if (r.status === 404) { clearInterval(state.pollTimer); state.pollTimer = null; throw new Error('配对码已过期'); }
+      return r.json();
+    }).then(function(data) {
+      if (data.ready) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        if (!state.connected) onConnected();
       } else {
-        var reason = e.reason || '连接失败';
-        var code = e.code || '';
-        setStatus('error', 'WS错误: ' + reason + (code ? ' (code:' + code + ')' : ''));
+        setStatus('waiting', '等待对方连接...');
+      }
+    }).catch(function(e) {
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+      if (!state.connected) {
+        setStatus('error', e.message);
         resetUI();
       }
-    };
-    state.relayWs.onerror = function(e) {
-      if (!state.connected) {
-        setStatus('error', 'WebSocket网络错误');
-      }
-    };
-  } catch(e) {
-    setStatus('error', '连接失败');
-    resetUI();
-  }
+    });
+  }, 2000);
 }
 
 function onConnected() {
@@ -233,7 +208,6 @@ function onConnected() {
 
 function onDisconnected(msg) {
   state.connected = false;
-  state.relayConnected = false;
   setStatus('error', msg || '连接已断开');
   if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
   state.cleanupTimer = setTimeout(function() {
@@ -243,9 +217,7 @@ function onDisconnected(msg) {
 
 function disconnect() {
   state.connected = false;
-  stopKeepAlive();
-  if (state.relayWs) { try { state.relayWs.close(); } catch(e) {} state.relayWs = null; }
-  state.relayConnected = false;
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
   state.code = null;
   state.role = null;
   resetUI();
@@ -262,22 +234,6 @@ function resetUI() {
   $('startGuardBtn').disabled = false;
   $('codeInput').value = '';
   setStatus('idle', '准备就绪');
-}
-
-function startKeepAlive() {
-  stopKeepAlive();
-  state.keepAliveTimer = setInterval(function() {
-    if (state.relayWs && state.relayWs.readyState === 1) {
-      state.relayWs.send(JSON.stringify({ type: 'relay_ping', t: Date.now() }));
-    }
-  }, 15000);
-}
-
-function stopKeepAlive() {
-  if (state.keepAliveTimer) {
-    clearInterval(state.keepAliveTimer);
-    state.keepAliveTimer = null;
-  }
 }
 </script>
 </body>

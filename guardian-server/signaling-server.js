@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '1.103';
+const VERSION = '1.104';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -300,6 +300,19 @@ app.post('/pair/:code/join', (req, res) => {
   res.json({ status: 'ok', code: req.params.code, role: 'protected', roomId: req.params.code });
 });
 
+app.get('/pair/:code/status', (req, res) => {
+  const pair = pairs.get(req.params.code);
+  if (!pair) {
+    return res.status(404).json({ error: 'pair code not found or expired' });
+  }
+  res.json({
+    status: 'ok',
+    code: req.params.code,
+    ready: !!pair.joinedBy,
+    joinedBy: !!pair.joinedBy
+  });
+});
+
 function cleanupExpiredPairs() {
   const now = Date.now();
   let cleaned = 0;
@@ -353,83 +366,12 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-const relayRooms = new Map();
-const relayConnections = new Map();
-
-server.on('upgrade', (request, socket, head) => {
-  let reqUrl;
-  try { reqUrl = new URL(request.url, 'http://localhost'); } catch (e) { return; }
-  if (!reqUrl.pathname.startsWith('/relay')) return;
-
-  const code = reqUrl.searchParams.get('code') || reqUrl.searchParams.get('room');
-  const role = reqUrl.searchParams.get('role');
-  if (!code || !role) { socket.destroy(); return; }
-
-  const { WebSocketServer } = require('ws');
-  const wss = new WebSocketServer({ noServer: true });
-
-  wss.handleUpgrade(request, socket, head, (ws) => {
-    ws.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        const info = relayConnections.get(ws);
-        if (!info) return;
-        const r = relayRooms.get(info.roomId);
-        if (!r) return;
-        if (msg.type === 'relay_ping') { ws.send(JSON.stringify({ type: 'relay_pong', t: msg.t || Date.now() })); return; }
-        if (msg.type === 'relay_data') {
-          r.peers.forEach((peer, id) => {
-            if (id !== info.connId && peer.ws.readyState === 1) {
-              peer.ws.send(JSON.stringify({ type: 'relay_data', data: msg.data, from: info.role }));
-            }
-          });
-        }
-      } catch (e) { relayLog.err('relay message error: ' + e.message); }
-    });
-
-    ws.on('close', () => {
-      const info = relayConnections.get(ws);
-      if (info) {
-        const r = relayRooms.get(info.roomId);
-        if (r) {
-          r.peers.delete(info.connId);
-          r.peers.forEach((peer, id) => {
-            if (peer.ws.readyState === 1) peer.ws.send(JSON.stringify({ type: 'relay_peer_left', role: info.role, totalPeers: r.peers.size }));
-          });
-          if (r.peers.size === 0) { relayRooms.delete(info.roomId); relayLog.ok('[relay] room ' + info.roomId + ' closed'); }
-        }
-        relayConnections.delete(ws);
-      }
-    });
-
-    ws.on('error', () => {});
-
-    const connId = code + '-' + role + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
-    if (!relayRooms.has(code)) { relayRooms.set(code, { peers: new Map(), createdAt: Date.now() }); }
-    const room = relayRooms.get(code);
-    room.peers.set(connId, { ws: ws, role: role, joinedAt: Date.now() });
-    relayConnections.set(ws, { roomId: code, connId: connId, role: role });
-    relayLog.ok(role + ' joined room ' + code + ' (' + room.peers.size + ' peers)');
-
-    room.peers.forEach((peer, id) => {
-      if (id !== connId && peer.ws.readyState === 1) {
-        peer.ws.send(JSON.stringify({ type: 'relay_peer_joined', role: role, totalPeers: room.peers.size }));
-      }
-    });
-    if (room.peers.size >= 2) {
-      room.peers.forEach((peer) => {
-        if (peer.ws.readyState === 1) peer.ws.send(JSON.stringify({ type: 'relay_ready', totalPeers: room.peers.size }));
-      });
-    }
-  });
-});
-
 server.listen(PORT, '0.0.0.0', () => {
   log.ok('========================================');
   log.ok('  Guardian Signaling Server v' + VERSION);
-  log.ok('  PeerJS: /peerjs  Relay: /relay');
-  log.ok('  HTTP + WSS on 0.0.0.0:' + PORT);
+  log.ok('  PeerJS: /peerjs  HTTP Pairing');
+  log.ok('  HTTP on 0.0.0.0:' + PORT);
   log.ok('  local IP: ' + (getLocalIP() || 'unknown'));
-  log.ok('  /health  /rooms  /network');
+  log.ok('  /health  /rooms  /network  /pair/:code/status');
   log.ok('========================================');
 });
