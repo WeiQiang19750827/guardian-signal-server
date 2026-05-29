@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Guardian v1.99</title>
+<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #0f1923; color: #e0e0e0; padding: 16px; min-height: 100vh; }
+.container { max-width: 420px; margin: 0 auto; }
+h1 { text-align: center; font-size: 22px; padding: 16px 0; color: #00d4aa; letter-spacing: 2px; }
+h2 { font-size: 16px; color: #8899aa; margin: 16px 0 8px; }
+.card { background: #1a2634; border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid #2a3a4a; }
+input, select { width: 100%; padding: 10px 12px; background: #0f1923; border: 1px solid #2a3a4a; border-radius: 8px; color: #e0e0e0; font-size: 14px; margin-bottom: 8px; }
+input:focus, select:focus { outline: none; border-color: #00d4aa; }
+.btn { display: inline-block; padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; width: 100%; text-align: center; margin-bottom: 8px; }
+.btn-primary { background: #00d4aa; color: #0f1923; font-weight: 600; }
+.btn-primary:disabled { background: #2a3a4a; color: #667788; cursor: not-allowed; }
+.btn-secondary { background: #2a3a4a; color: #e0e0e0; }
+.btn-danger { background: #e74c3c; color: #fff; }
+.btn-sm { width: auto; padding: 6px 16px; }
+.flex-row { display: flex; gap: 8px; align-items: center; }
+.flex-1 { flex: 1; }
+#log { background: #0a121c; border-radius: 8px; padding: 8px; height: 200px; overflow-y: auto; font-size: 11px; font-family: monospace; line-height: 1.6; margin-top: 8px; }
+.log-item { border-bottom: 1px solid #1a2634; padding: 2px 0; }
+.log-time { color: #556677; }
+.log-info { color: #88aacc; }
+.log-ok { color: #00d4aa; }
+.log-warn { color: #f0ad4e; }
+.log-error { color: #e74c3c; }
+#status { padding: 6px 12px; border-radius: 6px; font-size: 12px; text-align: center; display: inline-block; margin-bottom: 8px; }
+.status-disconnected { background: #2a3a4a; color: #8899aa; }
+.status-connecting { background: #2a3a4a; color: #f0ad4e; }
+.status-connected { background: #003d2e; color: #00d4aa; }
+.hidden { display: none !important; }
+.text-center { text-align: center; }
+.text-green { color: #00d4aa; }
+.text-red { color: #e74c3c; }
+.text-yellow { color: #f0ad4e; }
+.mt-8 { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>GUARDIAN</h1>
+  <div class="text-center" style="margin-bottom:12px;">
+    <span id="status" class="status-disconnected">Disconnected</span>
+    <span style="font-size:11px;color:#556677;margin-left:4px;" id="modeLabel"></span>
+  </div>
+
+  <div id="joinSection">
+    <div class="card">
+      <h2>房间</h2>
+      <input type="text" id="roomIdInput" placeholder="输入房间号 (6位数字)" maxlength="6" inputmode="numeric">
+      <div class="flex-row">
+        <select id="roleSelect" class="flex-1" style="margin-bottom:0;">
+          <option value="host">守护端 (Host)</option>
+          <option value="client">被守护端 (Client)</option>
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="joinRoom()" id="joinBtn">加入</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>创建新房间</h2>
+      <button class="btn btn-primary" onclick="createRoom()" id="createBtn">创建房间</button>
+    </div>
+  </div>
+
+  <div id="roomSection" class="hidden">
+    <div class="card">
+      <div class="flex-row" style="justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">房间 <span id="displayRoomId" style="color:#00d4aa;"></span></h2>
+        <button class="btn btn-danger btn-sm" onclick="leaveRoom()">离开</button>
+      </div>
+      <p style="font-size:13px;color:#8899aa;margin-top:8px;">角色: <span id="displayRole"></span></p>
+      <p style="font-size:13px;color:#8899aa;">状态: <span id="connStatus">等待对方加入...</span></p>
+      <p style="font-size:13px;color:#8899aa;">模式: <span id="connMode">-</span></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>连接日志</h2>
+    <div id="log"></div>
+    <div class="flex-row mt-8">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('log').innerHTML=''">清空</button>
+      <span style="font-size:11px;color:#556677;" id="serverInfo"></span>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script>
+const SERVER = 'wss://guardian-signal-server-production.up.railway.app';
+const SERVER_HTTP = 'https://guardian-signal-server-production.up.railway.app';
+
+var state = {
+  roomId: null,
+  role: null,
+  mode: null,
+  peer: null,
+  peerId: null,
+  relayWs: null,
+  relayConnected: false,
+  reconnectCount: 0,
+  maxRetries: 3,
+  reconnectTimer: null,
+  heartbeatTimer: null,
+  useRelay: false,
+};
+
+function log(msg, type) {
+  var el = document.getElementById('log');
+  var d = new Date();
+  var t = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ':' + d.getSeconds().toString().padStart(2,'0');
+  var cls = type === 'ok' ? 'log-ok' : type === 'warn' ? 'log-warn' : type === 'error' ? 'log-error' : 'log-info';
+  el.innerHTML += '<div class="log-item"><span class="log-time">[' + t + ']</span> <span class="' + cls + '">' + msg + '</span></div>';
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(text, cls) {
+  var el = document.getElementById('status');
+  el.textContent = text;
+  el.className = cls || 'status-disconnected';
+}
+
+function updateServerInfo() {
+  fetch(SERVER_HTTP + '/health').then(function(r) { return r.json(); }).then(function(d) {
+    document.getElementById('serverInfo').textContent = 'Server v' + (d.version || '?') + ' | Rooms: ' + (d.rooms ? d.rooms.active : '?');
+  }).catch(function() {});
+}
+
+updateServerInfo();
+
+function createRoom() {
+  document.getElementById('createBtn').disabled = true;
+  log('创建房间中...');
+  setStatus('Connecting', 'status-connecting');
+
+  fetch(SERVER_HTTP + '/rooms', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.roomId) {
+      document.getElementById('roomIdInput').value = data.roomId;
+      log('房间已创建: ' + data.roomId, 'ok');
+      joinRoom();
+    }
+  }).catch(function(e) {
+    log('创建房间失败: ' + e.message, 'error');
+    document.getElementById('createBtn').disabled = false;
+    setStatus('Disconnected');
+  });
+}
+
+function joinRoom() {
+  var roomId = document.getElementById('roomIdInput').value.trim();
+  var role = document.getElementById('roleSelect').value;
+  if (!roomId || roomId.length !== 6) {
+    log('请输入6位房间号', 'warn');
+    return;
+  }
+  state.roomId = roomId;
+  state.role = role;
+  document.getElementById('joinSection').classList.add('hidden');
+  document.getElementById('roomSection').classList.remove('hidden');
+  document.getElementById('displayRoomId').textContent = roomId;
+  document.getElementById('displayRole').textContent = role === 'host' ? '守护端' : '被守护端';
+
+  log('加入房间 ' + roomId + ' 作为 ' + role);
+  setStatus('Connecting', 'status-connecting');
+  startPeer(roomId, role);
+}
+
+function startPeer(roomId, role) {
+  state.useRelay = false;
+  var peerId = role + '_' + roomId + '_' + Math.random().toString(36).substr(2, 6);
+
+  try {
+    state.peer = new Peer(peerId, {
+      host: 'guardian-signal-server-production.up.railway.app',
+      port: 443,
+      path: '/peerjs',
+      secure: true,
+      debug: 0,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+      }
+    });
+  } catch(e) {
+    log('PeerJS init error: ' + e.message, 'error');
+    startRelayFallback(roomId, role);
+    return;
+  }
+
+  state.peerId = peerId;
+  state.reconnectCount = 0;
+
+  state.peer.on('open', function(id) {
+    log('PeerJS connected: ' + id, 'ok');
+    setStatus('Connected', 'status-connected');
+    document.getElementById('modeLabel').textContent = 'PeerJS';
+    document.getElementById('connMode').textContent = 'PeerJS P2P';
+    document.getElementById('connStatus').textContent = '等待对方连接...';
+
+    fetch(SERVER_HTTP + '/rooms/' + roomId + '/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerId: id })
+    }).catch(function() {});
+
+    if (role === 'host') {
+      startHeartbeat();
+    }
+  });
+
+  state.peer.on('connection', function(conn) {
+    log('对方已连接 (P2P)', 'ok');
+    document.getElementById('connStatus').textContent = '已连接 (P2P)';
+    state.mode = 'connected';
+    setupDataConnection(conn);
+  });
+
+  state.peer.on('disconnected', function() {
+    if (state.useRelay) return;
+    log('PeerJS 信令连接断开', 'warn');
+    document.getElementById('connStatus').textContent = '信令断开，重连中...';
+    document.getElementById('connMode').textContent = '重连中';
+
+    if (state.reconnectCount <= state.maxRetries) {
+      state.reconnectCount++;
+      var delay = Math.min(2000 * Math.pow(2, state.reconnectCount - 1), 10000);
+      log('重连尝试 ' + state.reconnectCount + '/' + state.maxRetries + ' (' + delay + 'ms)', 'warn');
+      state.reconnectTimer = setTimeout(function() {
+        if (state.peer && state.peer.disconnected) {
+          state.peer.reconnect();
+        }
+      }, delay);
+    } else {
+      log('P2P 重连全部失败，切换到中继模式', 'warn');
+      if (state.mode !== 'connected' && (!state.relayWs || !state.relayConnected)) {
+        startRelayFallback(roomId, role);
+      }
+    }
+  });
+
+  state.peer.on('error', function(err) {
+    var msg = err.type || err.message || 'unknown';
+    if (msg.indexOf('lost connection') >= 0) {
+      log('PeerJS: lost connection to server', 'warn');
+      return;
+    }
+    log('PeerJS error: ' + msg, 'error');
+    if (msg.indexOf('unavailable') >= 0 || msg.indexOf('failed') >= 0) {
+      if (!state.useRelay && state.mode !== 'connected') {
+        startRelayFallback(roomId, role);
+      }
+    }
+  });
+
+  state.peer.on('close', function() {
+    log('PeerJS 连接关闭', 'warn');
+  });
+
+  if (role === 'host') {
+    setTimeout(function() {
+      if (state.mode !== 'connected' && !state.useRelay) {
+        log('P2P 超时，切换到中继模式', 'warn');
+        startRelayFallback(roomId, role);
+      }
+    }, 30000);
+  }
+}
+
+function setupDataConnection(conn) {
+  state.mode = 'connected';
+  document.getElementById('connStatus').textContent = '已连接';
+  document.getElementById('connMode').textContent = 'P2P 直连';
+
+  conn.on('data', function(data) {
+    log('收到数据: ' + (typeof data === 'string' ? data.substring(0, 50) : 'binary'), 'ok');
+  });
+
+  conn.on('close', function() {
+    log('P2P 连接关闭', 'warn');
+    document.getElementById('connStatus').textContent = '连接已关闭';
+    state.mode = null;
+  });
+
+  conn.on('error', function(err) {
+    log('P2P 连接错误: ' + (err.message || err), 'error');
+  });
+}
+
+function startRelayFallback(roomId, role) {
+  if (state.useRelay) return;
+  if (state.relayWs && state.relayConnected) return;
+
+  state.useRelay = true;
+  log('启动中继模式...');
+  document.getElementById('connMode').textContent = '中继模式 (Relay)';
+
+  cleanup();
+
+  var url = SERVER + '/relay?room=' + roomId + '&role=' + role;
+  try {
+    state.relayWs = new WebSocket(url);
+
+    state.relayWs.onopen = function() {
+      state.relayConnected = true;
+      log('中继连接成功', 'ok');
+      setStatus('Connected', 'status-connected');
+      document.getElementById('modeLabel').textContent = 'Relay';
+      document.getElementById('connStatus').textContent = '已连接 (Relay)';
+      startHeartbeat();
+    };
+
+    state.relayWs.onmessage = function(e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'relay_ready') {
+          state.mode = 'connected';
+          document.getElementById('connStatus').textContent = '已连接 (Relay)';
+          log('中继通道就绪', 'ok');
+        } else if (msg.type === 'relay_peer_joined') {
+          log('对方加入了房间 (' + (msg.totalPeers || '?') + ' 人)', 'ok');
+        } else if (msg.type === 'relay_peer_left') {
+          log('对方离开了房间', 'warn');
+          document.getElementById('connStatus').textContent = '对方已离开';
+          state.mode = null;
+        } else if (msg.type === 'relay_data') {
+          log('Relay 收到数据: ' + (typeof msg.data === 'string' ? msg.data.substring(0, 50) : 'binary'), 'ok');
+        } else if (msg.type === 'relay_pong') {
+        }
+      } catch(e) {}
+    };
+
+    state.relayWs.onclose = function() {
+      state.relayConnected = false;
+      if (state.useRelay) {
+        log('中继连接关闭，尝试重连...', 'warn');
+        setTimeout(function() { startRelayFallback(roomId, role); }, 3000);
+      }
+    };
+
+    state.relayWs.onerror = function(e) {
+      log('中继连接错误', 'error');
+      state.relayConnected = false;
+    };
+  } catch(e) {
+    log('中继启动失败: ' + e.message, 'error');
+  }
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  state.heartbeatTimer = setInterval(function() {
+    if (state.relayWs && state.relayWs.readyState === 1) {
+      state.relayWs.send(JSON.stringify({ type: 'relay_ping', t: Date.now() }));
+    }
+  }, 15000);
+}
+
+function stopHeartbeat() {
+  if (state.heartbeatTimer) {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = null;
+  }
+}
+
+function cleanup() {
+  stopHeartbeat();
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  if (state.relayWs) {
+    try { state.relayWs.close(); } catch(e) {}
+    state.relayWs = null;
+    state.relayConnected = false;
+  }
+  if (state.peer) {
+    try { state.peer.destroy(); } catch(e) {}
+    state.peer = null;
+    state.peerId = null;
+  }
+  state.useRelay = false;
+  state.mode = null;
+  state.reconnectCount = 0;
+}
+
+function leaveRoom() {
+  log('离开房间');
+  cleanup();
+  document.getElementById('joinSection').classList.remove('hidden');
+  document.getElementById('roomSection').classList.add('hidden');
+  setStatus('Disconnected', 'status-disconnected');
+  document.getElementById('modeLabel').textContent = '';
+  document.getElementById('createBtn').disabled = false;
+}
+</script>
+</body>
+</html>

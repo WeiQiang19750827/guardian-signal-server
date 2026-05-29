@@ -1,24 +1,16 @@
-const { WebSocketServer } = require('ws');
+const express = require('express');
 const http = require('http');
-const https = require('https');
-const url = require('url');
-const crypto = require('crypto');
-const fs = require('fs');
+const { ExpressPeerServer } = require('peer');
 const os = require('os');
+const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
+const VERSION = '1.99';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
-const HEARTBEAT_INTERVAL = 10000;
-const HEARTBEAT_TIMEOUT = 30000;
-const CONNECTION_TIMEOUT = 60000;
-
-const CONN_STATE = {
-  DISCONNECTED: 'disconnected',
-  CONNECTING: 'connecting',
-  CONNECTED: 'connected',
-  CLOSING: 'closing'
-};
+const PEERJS_ALIVE_TIMEOUT = 300000;
+const PEERJS_EXPIRE_TIMEOUT = 30000;
+const IP_REPORT_INTERVAL = 120000;
 
 let serverConfig = {
   ipReport: {
@@ -33,252 +25,54 @@ let serverConfig = {
 try {
   const configPath = './server-config.json';
   if (fs.existsSync(configPath)) {
-    const configData = fs.readFileSync(configPath, 'utf8');
-    serverConfig = JSON.parse(configData);
+    serverConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
 } catch (err) {
-  console.log('load config failed:', err.message);
-}
-
-const rooms = new Map();
-
-function generateRoomId() {
-    return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function createLogger(prefix) {
-    return {
-        info: (msg, data) => console.log('[' + prefix + '] I ' + msg, data || ''),
-        ok: (msg, data) => console.log('[' + prefix + '] OK ' + msg, data || ''),
-        warn: (msg, data) => console.warn('[' + prefix + '] W ' + msg, data || ''),
-        err: (msg, data) => console.error('[' + prefix + '] E ' + msg, data || '')
-    };
+  return {
+    info: (msg, data) => console.log(`[${prefix}] I ${msg}`, data || ''),
+    ok: (msg, data) => console.log(`[${prefix}] OK ${msg}`, data || ''),
+    warn: (msg, data) => console.warn(`[${prefix}] W ${msg}`, data || ''),
+    err: (msg, data) => console.error(`[${prefix}] E ${msg}`, data || '')
+  };
 }
 
-const log = createLogger('SIGNAL');
+const log = createLogger('PEERJS');
+const relayLog = createLogger('RELAY');
 
-class ConnectionHeartbeat {
-  constructor(ws, onDead) {
-    this.ws = ws;
-    this.onDead = onDead;
-    this.lastPong = Date.now();
-    this.checkInterval = setInterval(() => this._check(), HEARTBEAT_INTERVAL);
-    this._alive = true;
-    ws.on('pong', () => { this.lastPong = Date.now(); this._alive = true; });
-  }
+const app = express();
+const server = http.createServer(app);
 
-  markPong() {
-    this.lastPong = Date.now();
-    this._alive = true;
-  }
+app.use(express.json());
 
-  _check() {
-    if (!this._alive || !this.ws._connected) {
-      this.destroy();
-      this.onDead(this.ws);
-      return;
-    }
-    this._alive = false;
-    try { this.ws.ping(); } catch (e) { this.destroy(); this.onDead(this.ws); }
-  }
+const peerServer = ExpressPeerServer(server, {
+  debug: false,
+  path: '/',
+  allow_discovery: true,
+  alive_timeout: PEERJS_ALIVE_TIMEOUT,
+  expire_timeout: PEERJS_EXPIRE_TIMEOUT,
+});
 
-  destroy() {
-    clearInterval(this.checkInterval);
-    this.checkInterval = null;
-  }
-}
+app.use('/peerjs', peerServer);
 
-class PeerConnection {
-  constructor(ws, role, roomId) {
-    this.id = crypto.randomUUID().slice(0, 8);
-    this.ws = ws;
-    this.role = role;
-    this.roomId = roomId;
-    this.state = CONN_STATE.CONNECTED;
-    this.connectedAt = Date.now();
-    this.lastActivity = Date.now();
-    this.messageCount = 0;
-    this.errorCount = 0;
-    this._closed = false;
-  }
-
-  markActivity() {
-    this.lastActivity = Date.now();
-    this.messageCount++;
-  }
-
-  markError() {
-    this.errorCount++;
-  }
-
-  close() {
-    if (this._closed) return;
-    this._closed = true;
-    this.state = CONN_STATE.DISCONNECTED;
-    try { this.ws.close(); } catch (e) {}
-  }
-
-  isHealthy() {
-    return !this._closed && this.ws.readyState === 1;
-  }
-
-  get info() {
-    return {
-      id: this.id,
-      role: this.role,
-      state: this.state,
-      connectedAt: this.connectedAt,
-      lastActivity: this.lastActivity,
-      messageCount: this.messageCount,
-      errorCount: this.errorCount
-    };
-  }
-}
-
-class Room {
-    constructor(id) {
-        this.id = id;
-        this.host = null;
-        this.client = null;
-        this.hostPeer = null;
-        this.clientPeer = null;
-        this.lastActivity = Date.now();
-        this.createdAt = Date.now();
-        this.iceCandidates = { host: [], client: [] };
-        log.ok('room created: ' + id);
-    }
-
-    addPeer(ws, role) {
-      this.lastActivity = Date.now();
-      const peer = new PeerConnection(ws, role, this.id);
-
-      if (role === 'host') {
-        if (this.hostPeer && this.hostPeer.isHealthy()) {
-          log.warn('room ' + this.id + ' active host(' + this.hostPeer.id + '), reject');
-          return false;
-        }
-        this._cleanupPeer('host');
-        this.host = ws;
-        this.hostPeer = peer;
-        this.host._peerId = peer.id;
-      } else {
-        if (this.clientPeer && this.clientPeer.isHealthy()) {
-          log.warn('room ' + this.id + ' active client(' + this.clientPeer.id + '), reject');
-          return false;
-        }
-        this._cleanupPeer('client');
-        this.client = ws;
-        this.clientPeer = peer;
-        this.client._peerId = peer.id;
-      }
-
-      ws._roomId = this.id;
-      ws._role = role;
-      ws._connected = true;
-
-      log.ok('[room ' + this.id + '] ' + role + ' join (peerId: ' + peer.id + ')');
-      this.broadcast({ type: 'peer_joined', role, peerId: peer.id });
-      const other = role === 'host' ? this.clientPeer : this.hostPeer;
-      if (other) {
-        ws.send(JSON.stringify({ type: 'peer_joined', role: other.role, peerId: other.id }));
-      }
-      return true;
-    }
-
-    _cleanupPeer(role) {
-      if (role === 'host') {
-        if (this.hostPeer) this.hostPeer.close();
-        this.host = null;
-        this.hostPeer = null;
-      } else {
-        if (this.clientPeer) this.clientPeer.close();
-        this.client = null;
-        this.clientPeer = null;
-      }
-    }
-
-    removePeer(ws) {
-        this.lastActivity = Date.now();
-        const role = ws._role;
-        const peerId = ws._peerId;
-
-        if (role === 'host' && this.hostPeer && this.hostPeer.id === peerId) {
-          this.hostPeer.close();
-          this.host = null;
-          this.hostPeer = null;
-        } else if (role === 'client' && this.clientPeer && this.clientPeer.id === peerId) {
-          this.clientPeer.close();
-          this.client = null;
-          this.clientPeer = null;
-        } else {
-          return !this.host && !this.client;
-        }
-
-        log.warn('[room ' + this.id + '] ' + role + '(' + peerId + ') leave');
-
-        const remaining = this.otherPeer(ws);
-        if (remaining) {
-            remaining.send(JSON.stringify({ type: 'peer_left', role, peerId }));
-        }
-        return !this.host && !this.client;
-    }
-
-    otherPeer(ws) {
-        if (ws._role === 'host') return this.client && this.client.readyState === 1 ? this.client : null;
-        return this.host && this.host.readyState === 1 ? this.host : null;
-    }
-
-    getOtherPeer(role) {
-      if (role === 'host') return this.clientPeer;
-      return this.hostPeer;
-    }
-
-    broadcast(message) {
-        const msg = JSON.stringify(message);
-        if (this.host && this.host.readyState === 1) this.host.send(msg);
-        if (this.client && this.client.readyState === 1) this.client.send(msg);
-    }
-
-    relay(from, message) {
-        this.lastActivity = Date.now();
-        const target = this.otherPeer(from);
-        if (target && target.readyState === 1) {
-            target.send(JSON.stringify(message));
-            return true;
-        }
-        return false;
-    }
-
-    markActivity() {
-      this.lastActivity = Date.now();
-    }
-
-    isExpired() {
-        return Date.now() - this.lastActivity > ROOM_INACTIVE_TIMEOUT;
-    }
-
-    getPeerCount() {
-        let count = 0;
-        if (this.host && this.host.readyState === 1 && this.hostPeer && this.hostPeer.isHealthy()) count++;
-        if (this.client && this.client.readyState === 1 && this.clientPeer && this.clientPeer.isHealthy()) count++;
-        return count;
-    }
-
-    get status() {
-      return {
-        id: this.id,
-        created: this.createdAt,
-        lastActivity: this.lastActivity,
-        age: Date.now() - this.createdAt,
-        idle: Date.now() - this.lastActivity,
-        peers: [this.hostPeer?.info, this.clientPeer?.info].filter(Boolean),
-        candidateCount: this.iceCandidates.host.length + this.iceCandidates.client.length
-      };
-    }
-}
-
+const rooms = new Map();
+const peerRoomMap = new Map();
 let startTime = Date.now();
 let publicIP = '';
+
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
 
 function getLocalIPs() {
   const interfaces = os.networkInterfaces();
@@ -305,7 +99,9 @@ function detectPublicIP() {
         if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
           publicIP = ip;
           log.ok('public IP: ' + ip);
-        } else { tryService(idx + 1); }
+        } else {
+          tryService(idx + 1);
+        }
       });
     });
     req.on('error', () => tryService(idx + 1));
@@ -315,285 +111,414 @@ function detectPublicIP() {
 }
 
 detectPublicIP();
-setInterval(detectPublicIP, 120000);
+setInterval(detectPublicIP, IP_REPORT_INTERVAL);
 
-const server = http.createServer((req, res) => {
-    const sendJson = (data, status) => {
-      if (!status) status = 200;
-      const body = JSON.stringify(data);
-      res.writeHead(status, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type'
-      });
-      res.end(body);
-    };
-
-    if (req.url === '/health') {
-        const localIP = getLocalIP();
-        const roomStats = { active: 0, total: 0, peerCount: 0 };
-        for (const room of rooms.values()) {
-          roomStats.total++;
-          const pc = room.getPeerCount();
-          if (pc > 0) roomStats.active++;
-          roomStats.peerCount += pc;
-        }
-        sendJson({
-            status: 'ok',
-            version: '1.93',
-            ip: publicIP || localIP,
-            localIP: localIP,
-            publicIP: publicIP || null,
-            signalPort: PORT,
-            turn: {
-                available: true,
-                port: 3478,
-                protocols: ['udp', 'tcp'],
-                username: 'guardian',
-                credential: 'guardian_p2p_2026',
-                realm: 'guardian.app'
-            },
-            rooms: roomStats,
-            uptime: Date.now() - startTime,
-            heartbeatInterval: HEARTBEAT_INTERVAL,
-            roomInactiveTimeout: ROOM_INACTIVE_TIMEOUT
-        });
-        return;
-    }
-    if (req.url === '/rooms') {
-        const roomList = [];
-        for (const [id, room] of rooms) {
-          roomList.push(room.status);
-        }
-        sendJson({ status: 'ok', count: roomList.length, rooms: roomList });
-        return;
-    }
-    if (req.url === '/network') {
-        const interfaces = os.networkInterfaces();
-        const ips = [];
-        for (const name of Object.keys(interfaces)) {
-            for (const iface of interfaces[name]) {
-                if (iface.family === 'IPv4' && !iface.internal) {
-                    ips.push({ name, address: iface.address, netmask: iface.netmask, mac: iface.mac });
-                }
-            }
-        }
-        sendJson({ status: 'ok', ips, count: ips.length });
-        return;
-    }
-    if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
-        });
-        res.end();
-        return;
-    }
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Guardian Signaling Server v1.93\n/health\n/rooms\n');
-});
-
-const wss = new WebSocketServer({ server });
-
-wss.on('connection', (ws, req) => {
-    const params = url.parse(req.url, true).query;
-    const roomId = params.room;
-    const role = params.role || 'client';
-    const clientIp = req.socket.remoteAddress;
-
-    log.info('new conn: ' + clientIp + ' room=' + roomId + ' role=' + role);
-
-    if (!roomId || !/^\d{6}$/.test(roomId)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'invalid room id' }));
-        ws.close();
-        return;
-    }
-
-    let room = rooms.get(roomId);
-    if (!room) {
-        room = new Room(roomId);
-        rooms.set(roomId, room);
-    }
-
-    ws._connected = true;
-
-    if (!room.addPeer(ws, role)) {
-        ws.send(JSON.stringify({ type: 'error', message: 'room full or role conflict' }));
-        ws.close();
-        return;
-    }
-
-    ws.send(JSON.stringify({ type: 'room_joined', roomId, role }));
-
-    if (room.host && room.client) {
-        log.ok('[room ' + roomId + '] both ready, start P2P');
-        room.broadcast({ type: 'ready', roomId });
-    }
-
-    const heartbeat = new ConnectionHeartbeat(ws, (deadWs) => {
-      const deadRoom = rooms.get(deadWs._roomId);
-      if (deadRoom) {
-        const peer = deadWs._role === 'host' ? deadRoom.hostPeer : deadRoom.clientPeer;
-        if (peer) peer.markError();
-        log.warn('[room ' + deadWs._roomId + '] heartbeat timeout, close ' + deadWs._role + '(' + deadWs._peerId + ')');
-        const empty = deadRoom.removePeer(deadWs);
-        if (empty) {
-            rooms.delete(deadWs._roomId);
-            log.ok('room ' + deadWs._roomId + ' closed (heartbeat)');
-        }
-      }
-    });
-
-    ws.on('message', (data) => {
-        try {
-            const msg = JSON.parse(data.toString());
-            const currentRoom = rooms.get(ws._roomId);
-            if (!currentRoom) return;
-            const peer = ws._role === 'host' ? currentRoom.hostPeer : currentRoom.clientPeer;
-            if (peer) peer.markActivity();
-            currentRoom.markActivity();
-            handleMessage(ws, currentRoom, msg, heartbeat);
-        } catch (e) {
-            log.err('message parse failed: ' + e.message);
-            const currentRoom = rooms.get(ws._roomId);
-            if (currentRoom) {
-              const peer = ws._role === 'host' ? currentRoom.hostPeer : currentRoom.clientPeer;
-              if (peer) peer.markError();
-            }
-        }
-    });
-
-    ws.on('close', () => {
-        ws._connected = false;
-        heartbeat.destroy();
-        const currentRoom = rooms.get(ws._roomId);
-        if (currentRoom) {
-            const empty = currentRoom.removePeer(ws);
-            if (empty) {
-                rooms.delete(ws._roomId);
-                log.ok('room ' + ws._roomId + ' closed (empty)');
-            }
-        }
-    });
-
-    ws.on('error', (err) => {
-        log.err('[room ' + ws._roomId + '] WS error: ' + err.message);
-        ws._connected = false;
-        heartbeat.destroy();
-        const currentRoom = rooms.get(ws._roomId);
-        if (currentRoom) {
-            const peer = ws._role === 'host' ? currentRoom.hostPeer : currentRoom.clientPeer;
-            if (peer) peer.markError();
-            const empty = currentRoom.removePeer(ws);
-            if (empty) {
-                rooms.delete(ws._roomId);
-            }
-        }
-    });
-});
-
-function handleMessage(ws, room, msg, heartbeat) {
-    switch (msg.type) {
-        case 'offer':
-            log.ok('[room ' + room.id + '] relay offer (sdp len: ' + (msg.sdp?.length || 0) + ')');
-            room.relay(ws, { type: 'offer', sdp: msg.sdp, trickle: true });
-            break;
-
-        case 'answer':
-            log.ok('[room ' + room.id + '] relay answer');
-            room.relay(ws, { type: 'answer', sdp: msg.sdp });
-            break;
-
-        case 'ice_candidate':
-            if (msg.candidate) {
-                room.relay(ws, { type: 'ice_candidate', candidate: msg.candidate });
-            }
-            break;
-
-        case 'ping':
-            if (heartbeat) heartbeat.markPong();
-            ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-            break;
-
-        case 'pong':
-            if (heartbeat) heartbeat.markPong();
-            break;
-
-        case 'offer_request':
-            log.ok('[room ' + room.id + '] ' + ws._role + ' request re-offer');
-            room.relay(ws, { type: 'offer_request' });
-            break;
-
-        case 'connection_ready':
-            log.ok('[room ' + room.id + '] ' + ws._role + ' P2P ready');
-            break;
-
-        default:
-            room.relay(ws, msg);
-    }
+function generateRoomId() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+function turnCredentials() {
+  const h = String(Math.floor(Math.random() * 90000 + 10000));
+  const expiry = Math.floor(Date.now() / 1000) + 86400;
+  return {
+    username: 'guardian_' + h,
+    credential: 'guardian_p2p_2026',
+    urls: [
+      'turn:' + (publicIP || getLocalIP()) + ':3478?transport=tcp',
+      'turn:' + (publicIP || getLocalIP()) + ':3478?transport=udp'
+    ],
+    ttl: 86400
+  };
+}
+
+peerServer.on('connection', (client) => {
+  const peerId = client.getId();
+  log.ok('peer connected: ' + peerId);
+});
+
+peerServer.on('disconnect', (client) => {
+  const peerId = client.getId();
+  log.ok('peer disconnected: ' + peerId);
+  const roomId = peerRoomMap.get(peerId);
+  if (roomId && rooms.has(roomId)) {
+    const room = rooms.get(roomId);
+    room.peers.delete(peerId);
+    peerRoomMap.delete(peerId);
+    log.warn('[room ' + roomId + '] peer ' + peerId + ' left, ' + room.peers.size + ' remaining');
+    if (room.peers.size === 0) {
+      rooms.delete(roomId);
+      log.ok('room ' + roomId + ' closed (empty)');
+    }
+  }
+});
+
+app.get('/health', (req, res) => {
+  const localIP = getLocalIP();
+  let activeRooms = 0;
+  let totalPeers = 0;
+  for (const room of rooms.values()) {
+    if (room.peers.size > 0) activeRooms++;
+    totalPeers += room.peers.size;
+  }
+  res.json({
+    status: 'ok',
+    version: VERSION,
+    ip: publicIP || localIP,
+    localIP: localIP,
+    publicIP: publicIP || null,
+    signalPort: PORT,
+    turn: turnCredentials(),
+    relay: {
+      available: true,
+      endpoint: '/relay',
+      protocol: 'wss',
+      mode: 'always_available'
+    },
+    rooms: {
+      active: activeRooms,
+      total: rooms.size,
+      peerCount: totalPeers
+    },
+    uptime: Date.now() - startTime,
+    heartbeatInterval: 10000,
+    roomInactiveTimeout: ROOM_INACTIVE_TIMEOUT
+  });
+});
+
+app.get('/rooms', (req, res) => {
+  const roomList = [];
+  for (const [id, room] of rooms) {
+    roomList.push({
+      id: id,
+      createdAt: room.createdAt,
+      lastActivity: room.lastActivity,
+      age: Date.now() - room.createdAt,
+      idle: Date.now() - room.lastActivity,
+      peerCount: room.peers.size,
+      peerIds: Array.from(room.peers)
+    });
+  }
+  res.json({ status: 'ok', count: roomList.length, rooms: roomList });
+});
+
+app.get('/network', (req, res) => {
+  const interfaces = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        ips.push({ name, address: iface.address, netmask: iface.netmask, mac: iface.mac });
+      }
+    }
+  }
+  res.json({ status: 'ok', ips, count: ips.length });
+});
+
+app.post('/rooms', (req, res) => {
+  const roomId = generateRoomId();
+  rooms.set(roomId, {
+    id: roomId,
+    peers: new Set(),
+    createdAt: Date.now(),
+    lastActivity: Date.now()
+  });
+  log.ok('room created: ' + roomId);
+  res.json({ status: 'ok', roomId, version: VERSION });
+});
+
+app.post('/rooms/:roomId/join', (req, res) => {
+  const room = rooms.get(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ error: 'room not found' });
+  }
+  const { peerId } = req.body;
+  if (!peerId) {
+    return res.status(400).json({ error: 'peerId required' });
+  }
+  room.peers.add(peerId);
+  peerRoomMap.set(peerId, room.id);
+  room.lastActivity = Date.now();
+  log.ok('[room ' + room.id + '] peer ' + peerId + ' joined (' + room.peers.size + ' peers)');
+  res.json({ status: 'ok', roomId: room.id, peerCount: room.peers.size });
+});
+
+app.post('/rooms/:roomId/leave', (req, res) => {
+  const room = rooms.get(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ error: 'room not found' });
+  }
+  const { peerId } = req.body;
+  if (peerId) {
+    room.peers.delete(peerId);
+    peerRoomMap.delete(peerId);
+    log.warn('[room ' + room.id + '] peer ' + peerId + ' left via API');
+  }
+  if (room.peers.size === 0) {
+    rooms.delete(req.params.roomId);
+    log.ok('room ' + req.params.roomId + ' closed (empty)');
+  }
+  res.json({ status: 'ok' });
+});
+
 function cleanupExpiredRooms() {
-    const now = Date.now();
-    let cleaned = 0;
-    for (const [id, room] of rooms) {
-        if (room.isExpired() || room.getPeerCount() === 0) {
-            log.warn('clean expired room ' + id + ' (idle ' + ((now - room.lastActivity)/1000).toFixed(0) + 's)');
-            if (room.hostPeer) room.hostPeer.close();
-            if (room.clientPeer) room.clientPeer.close();
-            rooms.delete(id);
-            cleaned++;
-        }
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [id, room] of rooms) {
+    const idle = now - room.lastActivity;
+    if (room.peers.size === 0 || idle > ROOM_INACTIVE_TIMEOUT) {
+      for (const peerId of room.peers) {
+        peerRoomMap.delete(peerId);
+      }
+      rooms.delete(id);
+      cleaned++;
+      log.warn('cleaned room ' + id + ' (idle ' + (idle / 1000).toFixed(0) + 's, peers: ' + room.peers.size + ')');
     }
-    if (cleaned > 0) {
-        log.ok('cleaned ' + cleaned + ' expired rooms');
-    }
+  }
+  if (cleaned > 0) {
+    log.ok('cleaned ' + cleaned + ' expired rooms');
+  }
 }
 
 setInterval(cleanupExpiredRooms, ROOM_CLEANUP_INTERVAL);
 
 function gracefulShutdown(signal) {
-    log.warn('received ' + signal + ', graceful shutdown...');
-    log.info('closing ' + rooms.size + ' rooms...');
-    for (const [id, room] of rooms) {
-        room.broadcast({ type: 'server_shutdown', reason: signal, reconnectIn: 5000 });
-        if (room.hostPeer) room.hostPeer.close();
-        if (room.clientPeer) room.clientPeer.close();
-    }
-    rooms.clear();
-    wss.close(() => {
-        log.ok('all connections closed, server stopped');
-        process.exit(0);
-    });
-    setTimeout(() => {
-        log.warn('force exit');
-        process.exit(0);
-    }, 3000);
+  log.warn('received ' + signal + ', graceful shutdown...');
+  log.info('closing ' + rooms.size + ' rooms...');
+  rooms.clear();
+  peerRoomMap.clear();
+  server.close(() => {
+    log.ok('all connections closed, server stopped');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    log.warn('force exit');
+    process.exit(0);
+  }, 3000);
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-server.listen(PORT, '0.0.0.0', () => {
-    log.ok('========================================');
-    log.ok('  Guardian Signaling Server v1.93');
-    log.ok('  ws://0.0.0.0:' + PORT);
-    log.ok('  local IP: ' + (getLocalIP() || 'unknown'));
-    log.ok('  heartbeat: ' + (HEARTBEAT_INTERVAL/1000) + 's interval, ' + (HEARTBEAT_TIMEOUT/1000) + 's timeout');
-    log.ok('  room idle timeout: ' + (ROOM_INACTIVE_TIMEOUT/1000) + 's');
-    log.ok('========================================');
+const relayRooms = new Map();
+const relayConnections = new Map();
+
+function relayHandleUpgrade(request, socket, head) {
+  const url = new URL(request.url, 'http://localhost');
+  if (url.pathname !== '/relay') return false;
+
+  const roomId = url.searchParams.get('room');
+  const role = url.searchParams.get('role');
+  if (!roomId || !role) {
+    socket.destroy();
+    return true;
+  }
+
+  const ws = require('ws');
+  const wss = new ws.WebSocket({ server: server, noServer: true });
+  
+  wss.handleUpgrade(request, socket, head, (wsConn) => {
+    const connId = roomId + '-' + role + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+    
+    if (!relayRooms.has(roomId)) {
+      relayRooms.set(roomId, { peers: new Map(), createdAt: Date.now() });
+    }
+    const room = relayRooms.get(roomId);
+    room.peers.set(connId, { ws: wsConn, role: role, joinedAt: Date.now() });
+    relayConnections.set(wsConn, { roomId: roomId, connId: connId, role: role });
+    
+    relayLog.ok('[relay] ' + role + ' joined room ' + roomId + ' (' + room.peers.size + ' peers)');
+
+    room.peers.forEach((peer, id) => {
+      if (id !== connId && peer.ws.readyState === 1) {
+        peer.ws.send(JSON.stringify({
+          type: 'relay_peer_joined',
+          role: role,
+          totalPeers: room.peers.size
+        }));
+      }
+    });
+
+    if (room.peers.size >= 2) {
+      room.peers.forEach((peer, id) => {
+        if (peer.ws.readyState === 1) {
+          peer.ws.send(JSON.stringify({
+            type: 'relay_ready',
+            totalPeers: room.peers.size
+          }));
+        }
+      });
+    }
+
+    wsConn.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        const info = relayConnections.get(wsConn);
+        if (!info) return;
+        
+        const r = relayRooms.get(info.roomId);
+        if (!r) return;
+
+        if (msg.type === 'relay_ping') {
+          wsConn.send(JSON.stringify({ type: 'relay_pong', t: msg.t || Date.now() }));
+          return;
+        }
+
+        if (msg.type === 'relay_data') {
+          r.peers.forEach((peer, id) => {
+            if (id !== info.connId && peer.ws.readyState === 1) {
+              var out = { type: 'relay_data', data: msg.data, from: info.role };
+              if (msg.dataType) out.dataType = msg.dataType;
+              peer.ws.send(JSON.stringify(out));
+            }
+          });
+        }
+      } catch (e) {
+        relayLog.err('relay message error: ' + e.message);
+      }
+    });
+
+    wsConn.on('close', () => {
+      const info = relayConnections.get(wsConn);
+      if (info) {
+        const r = relayRooms.get(info.roomId);
+        if (r) {
+          r.peers.delete(info.connId);
+          relayLog.warn('[relay] ' + info.role + ' left room ' + info.roomId + ' (' + r.peers.size + ' remaining)');
+
+          r.peers.forEach((peer, id) => {
+            if (peer.ws.readyState === 1) {
+              peer.ws.send(JSON.stringify({
+                type: 'relay_peer_left',
+                role: info.role,
+                totalPeers: r.peers.size
+              }));
+            }
+          });
+
+          if (r.peers.size === 0) {
+            relayRooms.delete(info.roomId);
+            relayLog.ok('[relay] room ' + info.roomId + ' closed');
+          }
+        }
+        relayConnections.delete(wsConn);
+      }
+    });
+
+    wsConn.on('error', (e) => {});
+  });
+  return true;
+}
+
+server.on('upgrade', (request, socket, head) => {
+  const url = new URL(request.url, 'http://localhost');
+  if (url.pathname.startsWith('/relay')) {
+    try {
+      const ws = require('ws');
+      const wss = new ws.WebSocket({ noServer: true });
+      wss.handleUpgrade(request, socket, head, (wsConn) => {
+        const roomId = url.searchParams.get('room');
+        const role = url.searchParams.get('role');
+        if (!roomId || !role) {
+          wsConn.close();
+          return;
+        }
+        const connId = roomId + '-' + role + '-' + Date.now();
+        
+        if (!relayRooms.has(roomId)) {
+          relayRooms.set(roomId, { peers: new Map(), createdAt: Date.now() });
+        }
+        const room = relayRooms.get(roomId);
+        room.peers.set(connId, { ws: wsConn, role: role, joinedAt: Date.now() });
+        relayConnections.set(wsConn, { roomId: roomId, connId: connId, role: role });
+        
+        relayLog.ok('[relay] ' + role + ' joined room ' + roomId + ' (' + room.peers.size + ' peers)');
+
+        room.peers.forEach((peer, id) => {
+          if (id !== connId && peer.ws.readyState === 1) {
+            peer.ws.send(JSON.stringify({
+              type: 'relay_peer_joined',
+              role: role,
+              totalPeers: room.peers.size
+            }));
+          }
+        });
+
+        if (room.peers.size >= 2) {
+          room.peers.forEach((peer, id) => {
+            if (peer.ws.readyState === 1) {
+              peer.ws.send(JSON.stringify({
+                type: 'relay_ready',
+                totalPeers: room.peers.size
+              }));
+            }
+          });
+        }
+
+        wsConn.on('message', (raw) => {
+          try {
+            const msg = JSON.parse(raw.toString());
+            const info = relayConnections.get(wsConn);
+            if (!info) return;
+            const r = relayRooms.get(info.roomId);
+            if (!r) return;
+
+            if (msg.type === 'relay_ping') {
+              wsConn.send(JSON.stringify({ type: 'relay_pong', t: msg.t || Date.now() }));
+              return;
+            }
+
+            if (msg.type === 'relay_data') {
+              r.peers.forEach((peer, id) => {
+                if (id !== info.connId && peer.ws.readyState === 1) {
+                  var out = { type: 'relay_data', data: msg.data, from: info.role };
+                  if (msg.dataType) out.dataType = msg.dataType;
+                  peer.ws.send(JSON.stringify(out));
+                }
+              });
+            }
+          } catch (e) {
+          }
+        });
+
+        wsConn.on('close', () => {
+          const info = relayConnections.get(wsConn);
+          if (info) {
+            const r = relayRooms.get(info.roomId);
+            if (r) {
+              r.peers.delete(info.connId);
+              r.peers.forEach((peer, id) => {
+                if (peer.ws.readyState === 1) {
+                  peer.ws.send(JSON.stringify({
+                    type: 'relay_peer_left',
+                    role: info.role,
+                    totalPeers: r.peers.size
+                  }));
+                }
+              });
+              if (r.peers.size === 0) {
+                relayRooms.delete(info.roomId);
+              }
+            }
+            relayConnections.delete(wsConn);
+          }
+        });
+
+        wsConn.on('error', () => {});
+      });
+    } catch (e) {
+      socket.destroy();
+    }
+    return;
+  }
+  socket.destroy();
 });
 
-function getLocalIP() {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name]) {
-            if (iface.family === 'IPv4' && !iface.internal) {
-                return iface.address;
-            }
-        }
-    }
-    return '127.0.0.1';
-}
+server.listen(PORT, '0.0.0.0', () => {
+  log.ok('========================================');
+  log.ok('  Guardian Signaling Server v' + VERSION);
+  log.ok('  PeerJS: /peerjs  Relay: /relay');
+  log.ok('  HTTP + WSS on 0.0.0.0:' + PORT);
+  log.ok('  local IP: ' + (getLocalIP() || 'unknown'));
+  log.ok('  /health  /rooms  /network');
+  log.ok('========================================');
+});

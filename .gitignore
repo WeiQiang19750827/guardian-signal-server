@@ -9,5 +9,16 @@
 !start.js
 !start-simple.bat
 !turn-server.js
+!deploy-railway.bat
+!deploy-git.bat
+!setup-deploy.bat
+!check-server.bat
+!build-apk.bat
+!guardian-v1.99.html
+!guardian-app/www/index.html
+!guardian-app/config.xml
+!guardian-app/package.json
+guardian-app/www/lib/*
 guardian-server/*.log
 guardian-server/node_modules/
+node_modules/
