@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Guardian v1.102</title>
+<title>Guardian v1.103</title>
 <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -195,18 +195,20 @@ function connectRelay(code, role) {
         }
       } catch(e) {}
     };
-    state.relayWs.onclose = function() {
+    state.relayWs.onclose = function(e) {
       state.relayConnected = false;
       if (state.connected) {
         onDisconnected('连接已断开');
       } else {
-        setStatus('error', '连接失败，请重试');
+        var reason = e.reason || '连接失败';
+        var code = e.code || '';
+        setStatus('error', 'WS错误: ' + reason + (code ? ' (code:' + code + ')' : ''));
         resetUI();
       }
     };
-    state.relayWs.onerror = function() {
+    state.relayWs.onerror = function(e) {
       if (!state.connected) {
-        setStatus('error', '网络错误');
+        setStatus('error', 'WebSocket网络错误');
       }
     };
   } catch(e) {

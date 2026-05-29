@@ -1,6 +1,6 @@
 {
   "name": "guardian-signaling-server",
-  "version": "1.102",
+  "version": "1.103",
   "description": "Guardian P2P Signaling Server v1.102 - PeerJS + Relay hybrid + CORS fix + fix relay WebSocket upgrade + smaller code font",
   "main": "signaling-server.js",
   "scripts": {
