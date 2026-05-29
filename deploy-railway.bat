@@ -125,7 +125,7 @@ echo =============================================
 echo  Deployment Complete!
 echo =============================================
 echo.
-echo  Version: v1.99
+echo  Version: v1.100
 echo  Server: wss://guardian-signal-server-production.up.railway.app
 echo  Health: https://guardian-signal-server-production.up.railway.app/health
 echo.
