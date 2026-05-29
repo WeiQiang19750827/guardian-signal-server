@@ -1,12 +1,14 @@
 {
   "name": "guardian-signaling-server",
-  "version": "2.0.0",
-  "description": "Guardian P2P Signaling Server - Cloud WebSocket signaling for P2P connections",
+  "version": "1.100",
+  "description": "Guardian P2P Signaling Server v1.100 - PeerJS + Relay hybrid",
   "main": "signaling-server.js",
   "scripts": {
     "start": "node signaling-server.js"
   },
   "dependencies": {
+    "express": "^4.21.0",
+    "peer": "^1.0.0",
     "ws": "^8.16.0"
   },
   "engines": {
