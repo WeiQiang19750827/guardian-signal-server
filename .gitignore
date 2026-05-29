@@ -11,6 +11,7 @@
 !turn-server.js
 !deploy-railway.bat
 !deploy-git.bat
+!deploy.bat
 !setup-deploy.bat
 !check-server.bat
 !build-apk.bat
