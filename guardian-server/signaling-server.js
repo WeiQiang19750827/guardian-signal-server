@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '1.101';
+const VERSION = '1.102';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -353,218 +353,82 @@ function gracefulShutdown(signal) {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+const { WebSocketServer } = require('ws');
+const relayWSS = new WebSocketServer({ noServer: true });
+
 const relayRooms = new Map();
 const relayConnections = new Map();
 
-function relayHandleUpgrade(request, socket, head) {
-  const url = new URL(request.url, 'http://localhost');
-  if (url.pathname !== '/relay') return false;
-
-  const roomId = url.searchParams.get('room');
-  const role = url.searchParams.get('role');
-  if (!roomId || !role) {
-    socket.destroy();
-    return true;
-  }
-
-  const ws = require('ws');
-  const wss = new ws.WebSocket({ server: server, noServer: true });
-  
-  wss.handleUpgrade(request, socket, head, (wsConn) => {
-    const connId = roomId + '-' + role + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
-    
-    if (!relayRooms.has(roomId)) {
-      relayRooms.set(roomId, { peers: new Map(), createdAt: Date.now() });
+function handleRelayPeer(wsConn, roomId, role) {
+  if (!roomId || !role) { wsConn.close(); return; }
+  const connId = roomId + '-' + role + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+  if (!relayRooms.has(roomId)) { relayRooms.set(roomId, { peers: new Map(), createdAt: Date.now() }); }
+  const room = relayRooms.get(roomId);
+  room.peers.set(connId, { ws: wsConn, role: role, joinedAt: Date.now() });
+  relayConnections.set(wsConn, { roomId: roomId, connId: connId, role: role });
+  relayLog.ok('[relay] ' + role + ' joined room ' + roomId + ' (' + room.peers.size + ' peers)');
+  room.peers.forEach((peer, id) => {
+    if (id !== connId && peer.ws.readyState === 1) {
+      peer.ws.send(JSON.stringify({ type: 'relay_peer_joined', role: role, totalPeers: room.peers.size }));
     }
-    const room = relayRooms.get(roomId);
-    room.peers.set(connId, { ws: wsConn, role: role, joinedAt: Date.now() });
-    relayConnections.set(wsConn, { roomId: roomId, connId: connId, role: role });
-    
-    relayLog.ok('[relay] ' + role + ' joined room ' + roomId + ' (' + room.peers.size + ' peers)');
-
-    room.peers.forEach((peer, id) => {
-      if (id !== connId && peer.ws.readyState === 1) {
-        peer.ws.send(JSON.stringify({
-          type: 'relay_peer_joined',
-          role: role,
-          totalPeers: room.peers.size
-        }));
-      }
-    });
-
-    if (room.peers.size >= 2) {
-      room.peers.forEach((peer, id) => {
-        if (peer.ws.readyState === 1) {
-          peer.ws.send(JSON.stringify({
-            type: 'relay_ready',
-            totalPeers: room.peers.size
-          }));
-        }
-      });
-    }
-
-    wsConn.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        const info = relayConnections.get(wsConn);
-        if (!info) return;
-        
-        const r = relayRooms.get(info.roomId);
-        if (!r) return;
-
-        if (msg.type === 'relay_ping') {
-          wsConn.send(JSON.stringify({ type: 'relay_pong', t: msg.t || Date.now() }));
-          return;
-        }
-
-        if (msg.type === 'relay_data') {
-          r.peers.forEach((peer, id) => {
-            if (id !== info.connId && peer.ws.readyState === 1) {
-              var out = { type: 'relay_data', data: msg.data, from: info.role };
-              if (msg.dataType) out.dataType = msg.dataType;
-              peer.ws.send(JSON.stringify(out));
-            }
-          });
-        }
-      } catch (e) {
-        relayLog.err('relay message error: ' + e.message);
-      }
-    });
-
-    wsConn.on('close', () => {
-      const info = relayConnections.get(wsConn);
-      if (info) {
-        const r = relayRooms.get(info.roomId);
-        if (r) {
-          r.peers.delete(info.connId);
-          relayLog.warn('[relay] ' + info.role + ' left room ' + info.roomId + ' (' + r.peers.size + ' remaining)');
-
-          r.peers.forEach((peer, id) => {
-            if (peer.ws.readyState === 1) {
-              peer.ws.send(JSON.stringify({
-                type: 'relay_peer_left',
-                role: info.role,
-                totalPeers: r.peers.size
-              }));
-            }
-          });
-
-          if (r.peers.size === 0) {
-            relayRooms.delete(info.roomId);
-            relayLog.ok('[relay] room ' + info.roomId + ' closed');
-          }
-        }
-        relayConnections.delete(wsConn);
-      }
-    });
-
-    wsConn.on('error', (e) => {});
   });
-  return true;
+  if (room.peers.size >= 2) {
+    room.peers.forEach((peer) => {
+      if (peer.ws.readyState === 1) peer.ws.send(JSON.stringify({ type: 'relay_ready', totalPeers: room.peers.size }));
+    });
+  }
+  wsConn.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      const info = relayConnections.get(wsConn);
+      if (!info) return;
+      const r = relayRooms.get(info.roomId);
+      if (!r) return;
+      if (msg.type === 'relay_ping') { wsConn.send(JSON.stringify({ type: 'relay_pong', t: msg.t || Date.now() })); return; }
+      if (msg.type === 'relay_data') {
+        r.peers.forEach((peer, id) => {
+          if (id !== info.connId && peer.ws.readyState === 1) {
+            var out = { type: 'relay_data', data: msg.data, from: info.role };
+            if (msg.dataType) out.dataType = msg.dataType;
+            peer.ws.send(JSON.stringify(out));
+          }
+        });
+      }
+    } catch (e) { relayLog.err('relay message error: ' + e.message); }
+  });
+  wsConn.on('close', () => {
+    const info = relayConnections.get(wsConn);
+    if (info) {
+      const r = relayRooms.get(info.roomId);
+      if (r) {
+        r.peers.delete(info.connId);
+        r.peers.forEach((peer, id) => {
+          if (peer.ws.readyState === 1) peer.ws.send(JSON.stringify({ type: 'relay_peer_left', role: info.role, totalPeers: r.peers.size }));
+        });
+        if (r.peers.size === 0) { relayRooms.delete(info.roomId); relayLog.ok('[relay] room ' + info.roomId + ' closed'); }
+      }
+      relayConnections.delete(wsConn);
+    }
+  });
+  wsConn.on('error', () => {});
 }
+
+relayWSS.on('connection', (wsConn, request, url) => {
+  handleRelayPeer(wsConn, url.searchParams.get('code') || url.searchParams.get('room'), url.searchParams.get('role'));
+});
 
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url, 'http://localhost');
   if (url.pathname.startsWith('/relay')) {
     try {
-      const ws = require('ws');
-      const wss = new ws.WebSocket({ noServer: true });
-      wss.handleUpgrade(request, socket, head, (wsConn) => {
-        const roomId = url.searchParams.get('code') || url.searchParams.get('room');
-        const role = url.searchParams.get('role');
-        if (!roomId || !role) {
-          wsConn.close();
-          return;
-        }
-        const connId = roomId + '-' + role + '-' + Date.now();
-        
-        if (!relayRooms.has(roomId)) {
-          relayRooms.set(roomId, { peers: new Map(), createdAt: Date.now() });
-        }
-        const room = relayRooms.get(roomId);
-        room.peers.set(connId, { ws: wsConn, role: role, joinedAt: Date.now() });
-        relayConnections.set(wsConn, { roomId: roomId, connId: connId, role: role });
-        
-        relayLog.ok('[relay] ' + role + ' joined room ' + roomId + ' (' + room.peers.size + ' peers)');
-
-        room.peers.forEach((peer, id) => {
-          if (id !== connId && peer.ws.readyState === 1) {
-            peer.ws.send(JSON.stringify({
-              type: 'relay_peer_joined',
-              role: role,
-              totalPeers: room.peers.size
-            }));
-          }
-        });
-
-        if (room.peers.size >= 2) {
-          room.peers.forEach((peer, id) => {
-            if (peer.ws.readyState === 1) {
-              peer.ws.send(JSON.stringify({
-                type: 'relay_ready',
-                totalPeers: room.peers.size
-              }));
-            }
-          });
-        }
-
-        wsConn.on('message', (raw) => {
-          try {
-            const msg = JSON.parse(raw.toString());
-            const info = relayConnections.get(wsConn);
-            if (!info) return;
-            const r = relayRooms.get(info.roomId);
-            if (!r) return;
-
-            if (msg.type === 'relay_ping') {
-              wsConn.send(JSON.stringify({ type: 'relay_pong', t: msg.t || Date.now() }));
-              return;
-            }
-
-            if (msg.type === 'relay_data') {
-              r.peers.forEach((peer, id) => {
-                if (id !== info.connId && peer.ws.readyState === 1) {
-                  var out = { type: 'relay_data', data: msg.data, from: info.role };
-                  if (msg.dataType) out.dataType = msg.dataType;
-                  peer.ws.send(JSON.stringify(out));
-                }
-              });
-            }
-          } catch (e) {
-          }
-        });
-
-        wsConn.on('close', () => {
-          const info = relayConnections.get(wsConn);
-          if (info) {
-            const r = relayRooms.get(info.roomId);
-            if (r) {
-              r.peers.delete(info.connId);
-              r.peers.forEach((peer, id) => {
-                if (peer.ws.readyState === 1) {
-                  peer.ws.send(JSON.stringify({
-                    type: 'relay_peer_left',
-                    role: info.role,
-                    totalPeers: r.peers.size
-                  }));
-                }
-              });
-              if (r.peers.size === 0) {
-                relayRooms.delete(info.roomId);
-              }
-            }
-            relayConnections.delete(wsConn);
-          }
-        });
-
-        wsConn.on('error', () => {});
+      relayWSS.handleUpgrade(request, socket, head, (wsConn) => {
+        relayWSS.emit('connection', wsConn, request, url);
       });
     } catch (e) {
       socket.destroy();
     }
     return;
   }
-  socket.destroy();
 });
 
 server.listen(PORT, '0.0.0.0', () => {
