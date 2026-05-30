@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Guardian v1.104</title>
+<title>Guardian v1.105</title>
 <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval'; connect-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline';">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -33,6 +33,11 @@ input:focus { outline: none; border-color: #00d4aa; }
 .status-error { background: #3d1a1a; color: #e74c3c; border: 1px solid #e74c3c; }
 .hidden { display: none !important; }
 .icon-large { font-size: 40px; display: block; text-align: center; padding: 8px 0; }
+.avatar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+.avatar-item { aspect-ratio: 1; border-radius: 50%; background: #0f1923; border: 3px solid #2a3a4a; display: flex; align-items: center; justify-content: center; font-size: 32px; cursor: pointer; transition: all 0.2s; }
+.avatar-item.selected { border-color: #00d4aa; background: #003d2e; }
+.avatar-item:active { transform: scale(0.9); }
+.setup-name { text-align: left; letter-spacing: 1px; font-size: 18px; }
 </style>
 </head>
 <body>
@@ -84,11 +89,21 @@ input:focus { outline: none; border-color: #00d4aa; }
       <button class="btn btn-danger" onclick="disconnect()" style="margin-top:12px;">断开连接</button>
     </div>
   </div>
+
+  <div class="card hidden" id="guardianSetupSection">
+    <p class="code-label">设置被守护人</p>
+    <input type="text" id="setupNameInput" class="setup-name" placeholder="输入称呼（如：妈妈）" maxlength="10">
+    <p style="color:#8899aa;font-size:13px;margin-bottom:8px;">选择头像</p>
+    <div class="avatar-grid" id="avatarGrid"></div>
+    <button class="btn btn-primary" onclick="confirmSetup()" id="confirmSetupBtn" disabled>完成设置</button>
+    <button class="btn btn-secondary" onclick="disconnect()" style="margin-top:8px;">取消</button>
+  </div>
 </div>
 
 <script src="lib/peerjs.min.js"></script>
 <script>
 const SERVER_HTTP = 'https://guardian-signal-server-production.up.railway.app';
+const AVATARS = ['👶', '🧒', '👦', '👧', '👨', '👩', '👴', '👵'];
 
 var state = {
   code: null,
@@ -96,6 +111,8 @@ var state = {
   connected: false,
   pollTimer: null,
   cleanupTimer: null,
+  setupName: '',
+  setupAvatar: '',
 };
 
 function $(id) { return document.getElementById(id); }
@@ -106,6 +123,7 @@ function switchTab(tab) {
   $('guardianTab').classList.toggle('hidden', tab !== 'guardian');
   $('protectedTab').classList.toggle('hidden', tab !== 'protected');
   $('connectedSection').classList.add('hidden');
+  $('guardianSetupSection').classList.add('hidden');
   disconnect();
   setStatus('idle', '准备就绪');
 }
@@ -115,6 +133,33 @@ function setStatus(type, msg) {
   el.textContent = msg;
   el.className = 'status-bar status-' + type;
 }
+
+function initAvatars() {
+  var grid = $('avatarGrid');
+  grid.innerHTML = '';
+  AVATARS.forEach(function(emoji) {
+    var div = document.createElement('div');
+    div.className = 'avatar-item';
+    div.textContent = emoji;
+    div.dataset.emoji = emoji;
+    div.onclick = function() {
+      document.querySelectorAll('.avatar-item').forEach(function(e) { e.classList.remove('selected'); });
+      div.classList.add('selected');
+      state.setupAvatar = emoji;
+      checkSetupReady();
+    };
+    grid.appendChild(div);
+  });
+}
+
+function checkSetupReady() {
+  $('confirmSetupBtn').disabled = !(state.setupName.trim() && state.setupAvatar);
+}
+
+$('setupNameInput').oninput = function() {
+  state.setupName = this.value;
+  checkSetupReady();
+};
 
 function startGuarding() {
   $('startGuardBtn').disabled = true;
@@ -194,16 +239,38 @@ function startPolling(code, role) {
 
 function onConnected() {
   state.connected = true;
-  setStatus('connected', '已安全连接');
-  $('connectedSection').classList.remove('hidden');
-  $('connectedContent').classList.remove('hidden');
   if (state.role === 'guardian') {
     $('guardianWaitSection').classList.add('hidden');
     $('guardianCodeSection').classList.add('hidden');
+    $('connectedSection').classList.add('hidden');
+    $('guardianSetupSection').classList.remove('hidden');
+    state.setupName = '';
+    state.setupAvatar = '';
+    $('setupNameInput').value = '';
+    $('confirmSetupBtn').disabled = true;
+    document.querySelectorAll('.avatar-item').forEach(function(e) { e.classList.remove('selected'); });
+    setStatus('waiting', '请设置被守护人信息');
   } else {
     $('protectedWaitSection').classList.add('hidden');
     $('protectedInputSection').classList.add('hidden');
+    $('connectedSection').classList.remove('hidden');
+    $('connectedContent').classList.remove('hidden');
+    setStatus('connected', '已安全连接');
   }
+}
+
+function confirmSetup() {
+  if (!state.setupName.trim() || !state.setupAvatar) return;
+  $('guardianSetupSection').classList.add('hidden');
+  $('connectedSection').classList.remove('hidden');
+  $('connectedContent').classList.remove('hidden');
+  var setupInfo = $('setupNameInput').value.trim() + ' ' + state.setupAvatar;
+  $('connectedContent').innerHTML =
+    '<div class="status-bar status-connected">已安全连接</div>' +
+    '<p class="text-center" style="color:#00d4aa;font-size:20px;padding:8px 0;">' + setupInfo + '</p>' +
+    '<p class="text-center" style="color:#8899aa;font-size:13px;">正在守护中</p>' +
+    '<button class="btn btn-danger" onclick="disconnect()" style="margin-top:12px;">断开连接</button>';
+  setStatus('connected', '守护中');
 }
 
 function onDisconnected(msg) {
@@ -220,6 +287,8 @@ function disconnect() {
   if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
   state.code = null;
   state.role = null;
+  state.setupName = '';
+  state.setupAvatar = '';
   resetUI();
 }
 
@@ -231,10 +300,16 @@ function resetUI() {
   $('protectedInputSection').classList.remove('hidden');
   $('protectedWaitSection').classList.add('hidden');
   $('connectedSection').classList.add('hidden');
+  $('guardianSetupSection').classList.add('hidden');
   $('startGuardBtn').disabled = false;
   $('codeInput').value = '';
+  $('setupNameInput').value = '';
+  document.querySelectorAll('.avatar-item').forEach(function(e) { e.classList.remove('selected'); });
+  $('confirmSetupBtn').disabled = true;
   setStatus('idle', '准备就绪');
 }
+
+initAvatars();
 </script>
 </body>
 </html>
