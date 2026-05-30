@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.8</title>
+    <title>守护者 Guardian v2.0.9</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -2926,22 +2926,23 @@
             _enterRelaySignaling(role, code) {
                 var self = this;
                 var useLocal = role === 'host';
-                console.log('[P2P v2.0.2 信令链] 中继启动, role=' + role + ', code=' + code);
+                console.log('[P2P v2.0.9 信令链] HTTP中继启动, role=' + role + ', code=' + code);
                 showToast('📡 连接信令中继...');
                 self._useSig = false;
-                MqttSignaling.onconnect = function() {
-                    if (window.RealTimeSync && !RealTimeSync.isConnected && MqttSignaling.dc && MqttSignaling.dc.readyState === 'open') {
-                        console.log('[P2P v1.108] MQTT 信令连接成功');
-                        RealTimeSync._connectSig(MqttSignaling.dc);
+                RelaySignaling.onconnect = function() {
+                    if (window.RealTimeSync && !RealTimeSync.isConnected && RelaySignaling.dc && RelaySignaling.dc.readyState === 'open') {
+                        console.log('[P2P v2.0.9] HTTP信令连接成功');
+                        RealTimeSync._connectSig(RelaySignaling.dc);
                     }
                 };
-                MqttSignaling.ondisconnect = function() {
+                RelaySignaling.ondisconnect = function() {
                     if (window.RealTimeSync && RealTimeSync.isConnected && RealTimeSync._useSig) {
                         RealTimeSync.isConnected = false;
                         RealTimeSync._dispatch('p2p:disconnected', {});
                     }
                 };
-                MqttSignaling.connect(code, useLocal);
+                RelaySignaling._pollAbort = true;
+                setTimeout(function() { RelaySignaling.connect(code, useLocal); }, 100);
             },
 
             // v1.108: HTTP 配对状态轮询（host 端等待 protected 加入）
@@ -4491,16 +4492,17 @@
         // ========== MQTT信令中继（通过免费公共MQTT Broker自动交换SDP，零配置）==========
         // EMQX 免费公共 MQTT Broker，国内可访问，无需注册
         // 流程：生成6位密码 → 输入密码 → MQTT自动转发SDP → P2P直连建立
-        // v2.0.2: Railway WebSocket relay signaling (替代 MQTT 公共代理)
-        // 直接连接 Railway 服务器 /relay 端点交换 SDP/ICE，消除对第三方 MQTT broker 的依赖
-        var RAILWAY_WS_URL = 'wss://guardian-signal-server-production.up.railway.app/relay';
         const RelaySignaling = {
-            ws: null, pc: null, dc: null,
+            pc: null, dc: null,
             roomId: null, isHost: false,
-            _pingTimer: null, _connecting: false, _retryTimer: null, _retryCount: 0, _maxRetries: 5,
             _relayTimer: null, _relayActive: false,
             _iceCandidateQueue: [],
+            _pollAbort: false,
             onconnect: null, ondata: null, ondisconnect: null,
+
+            _baseUrl() {
+                return (window.RealTimeSync && RealTimeSync._pairServer) || 'https://guardian-signal-server-production.up.railway.app';
+            },
 
             _resetPC() {
                 if (this.pc) { try { this.pc.close(); } catch(e) {} this.pc = null; }
@@ -4544,7 +4546,6 @@
 
                 pc.oniceconnectionstatechange = function() {
                     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-                        self._retryCount = 0;
                         if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
                         if (self.dc && self.dc.readyState === 'open') {
                             if (self.onconnect) self.onconnect();
@@ -4577,7 +4578,6 @@
                 if (!this.dc) return;
                 var self = this;
                 this.dc.onopen = function() {
-                    self._retryCount = 0;
                     if (self.pc && (self.pc.iceConnectionState === 'connected' || self.pc.iceConnectionState === 'completed')) {
                         if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
                         if (self.onconnect) self.onconnect();
@@ -4598,107 +4598,87 @@
                 });
             },
 
+            // v2.0.9: HTTP 长轮询发送消息 (替代 WebSocket send)
             _sendMsg(msg) {
-                if (this.ws && this.ws.readyState === 1) {
-                    this.ws.send(JSON.stringify(msg));
+                var self = this;
+                if (!this.roomId) return;
+                var url = self._baseUrl() + '/relay/msg';
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: this.roomId, role: this.isHost ? 'host' : 'client', data: msg })
+                }).catch(function(err){ console.warn('[Relay] send err:', err); });
+            },
+
+            // v2.0.9: HTTP 长轮询连接 (替代 WebSocket connect)
+            connect(code, isHost) {
+                if (this._pollAbort) this._pollAbort = true;
+                this.roomId = code;
+                this.isHost = isHost;
+                this._pollAbort = false;
+                var self = this;
+                console.log('[Relay HTTP] 启动长轮询, code=' + code + ', role=' + (isHost ? 'host' : 'client'));
+                showToast(isHost ? '🔄 等待对方连接...' : '🔄 正在连接...');
+                self._pollLoop(code, isHost ? 'host' : 'client');
+                if (!isHost) {
+                    setTimeout(function() { self._sendMsg({t:'ready'}); }, 500);
                 }
             },
 
-            connect(code, isHost) {
-                // 清理旧 WebSocket，防止陈旧回调
-                if (this.ws) {
-                    try {
-                        this.ws.onopen = null;
-                        this.ws.onclose = null;
-                        this.ws.onerror = null;
-                        this.ws.onmessage = null;
-                        if (this.ws.readyState === 0 || this.ws.readyState === 1) this.ws.close();
-                    } catch(e) {}
-                }
-                this.roomId = code;
-                this.isHost = isHost;
-                this._connecting = true;
-                if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
-                // 每次 connect 递增世代号，陈旧回调通过 gen 检查跳过
-                this._connGen = (this._connGen || 0) + 1;
-                var gen = this._connGen;
+            // v2.0.9: HTTP 长轮询循环 (递归)
+            _pollLoop(code, role) {
                 var self = this;
-                var role = isHost ? 'host' : 'client';
-
-                var url = RAILWAY_WS_URL + '?code=' + encodeURIComponent(code) + '&role=' + role;
-                console.log('[Relay] connecting to', url);
-                showToast('📡 连接信令中继...');
-
-                try {
-                    this.ws = new WebSocket(url);
-                    this.ws.onopen = function() {
-                        if (gen !== self._connGen) return;
-                        self._connecting = false;
-                        // _retryCount 不由 onopen 重置（防止 ws 闪断导致退避无效），
-                        // 仅在完整连接建立时重置（ICE connected / DC open / 中继激活）
-                        console.log('[Relay] WebSocket已连接');
-                        showToast(isHost ? '🔄 等待对方连接...' : '🔄 正在连接...');
-                        // 立即发心跳，防止 Railway 代理空闲超时断开
-                        self._sendMsg({t:'ping'});
-                        if (self._pingTimer) clearInterval(self._pingTimer);
-                        self._pingTimer = setInterval(function() {
-                            if (self.ws && self.ws.readyState === 1) self._sendMsg({t:'ping'});
-                        }, 25000);
-                        if (!isHost) {
-                            self._sendMsg({t:'ready'});
-                        }
-                    };
-                    this.ws.onmessage = function(e) {
-                        if (gen !== self._connGen) return;
-                        try {
-                            var m = JSON.parse(e.data);
-                            if (!m.t) return;
-                            switch (m.t) {
-                                case 'ready':
-                                    if (isHost) self._startHost();
-                                    break;
-                                case 'offer':
-                                    if (!isHost) self._handleOffer(m.d);
-                                    break;
-                                case 'answer':
-                                    if (isHost) self._handleAnswer(m.d);
-                                    break;
-                                case 'c':
-                                    if (self.pc && m.d) {
-                                        if (self.pc.remoteDescription && self.pc.remoteDescription.type) {
-                                            self.pc.addIceCandidate(new RTCIceCandidate(m.d)).catch(function(e){});
-                                        } else {
-                                            self._iceCandidateQueue.push(m.d);
-                                        }
-                                    }
-                                    break;
-                                case 'relay_data':
-                                    if (self._relayActive && self.ondata) self.ondata(m.p);
-                                    break;
-                                case 'ping':
-                                case 'pong': /* keep-alive ack */ break;
+                if (self._pollAbort || self.roomId !== code) return;
+                var url = self._baseUrl() + '/relay/poll/' + encodeURIComponent(code) + '?role=' + encodeURIComponent(role);
+                fetch(url)
+                    .then(function(r) {
+                        if (!r.ok) throw new Error('poll status ' + r.status);
+                        return r.json();
+                    })
+                    .then(function(data) {
+                        if (self._pollAbort || self.roomId !== code) return;
+                        if (data.status === 'ok' && data.messages && data.messages.length > 0) {
+                            for (var i = 0; i < data.messages.length; i++) {
+                                self._handleRelayMsg(data.messages[i]);
                             }
-                        } catch(err) { console.warn('[Relay] parse err:', err); }
-                    };
-                    this.ws.onerror = function() { /* onclose will fire */ };
-                    this.ws.onclose = function(e) {
-                        if (gen !== self._connGen) return;
-                        if (self._pingTimer) { clearInterval(self._pingTimer); self._pingTimer = null; }
-                        if (self.pc && self.dc) return;
-                        console.log('[Relay] WS关闭 code=' + e.code);
-                        self._connecting = true;
-                        if (e.code !== 4000 && self._retryCount < self._maxRetries) {
-                            self._retryCount++;
-                            var delay = Math.min(5000 * Math.pow(2, self._retryCount - 1), 80000);
-                            showToast('📡 中继断开(' + self._retryCount + '/' + self._maxRetries + ')，' + (delay / 1000) + '秒后重连...');
-                            if (self._retryTimer) clearTimeout(self._retryTimer);
-                            self._retryTimer = setTimeout(function() { self.connect(code, isHost); }, delay);
-                        } else if (self._retryCount >= self._maxRetries) {
-                            showToast('❌ 信令中继连接失败，请检查网络后重试');
                         }
-                    };
-                } catch(e) {
-                    showToast('❌ 无法连接信令服务器');
+                        setTimeout(function() { self._pollLoop(code, role); }, 0);
+                    })
+                    .catch(function(err) {
+                        if (self._pollAbort || self.roomId !== code) return;
+                        console.warn('[Relay HTTP] poll err:', err);
+                        setTimeout(function() { self._pollLoop(code, role); }, 1000);
+                    });
+            },
+
+            // v2.0.9: 处理轮询收到的信令消息 (替代 ws.onmessage)
+            _handleRelayMsg(m) {
+                if (!m || !m.t) return;
+                var self = this;
+                switch (m.t) {
+                    case 'ready':
+                        if (self.isHost) self._startHost();
+                        break;
+                    case 'offer':
+                        if (!self.isHost) self._handleOffer(m.d);
+                        break;
+                    case 'answer':
+                        if (self.isHost) self._handleAnswer(m.d);
+                        break;
+                    case 'c':
+                        if (self.pc && m.d) {
+                            if (self.pc.remoteDescription && self.pc.remoteDescription.type) {
+                                self.pc.addIceCandidate(new RTCIceCandidate(m.d)).catch(function(){});
+                            } else {
+                                self._iceCandidateQueue.push(m.d);
+                            }
+                        }
+                        break;
+                    case 'relay_data':
+                        if (self._relayActive && self.ondata) self.ondata(m.p);
+                        break;
+                    case 'ping':
+                    case 'pong': break;
                 }
             },
 
@@ -4775,7 +4755,6 @@
                     };
                 }
                 self._setupDC();
-                self._retryCount = 0;
                 showToast('🔁 已切到中继模式');
                 if (self.onconnect) self.onconnect();
             },
@@ -4788,11 +4767,9 @@
             },
 
             close() {
-                this._connecting = false;
+                this._pollAbort = true;
+                if (this._relayTimer) { clearTimeout(this._relayTimer); this._relayTimer = null; }
                 this._resetPC();
-                if (this._pingTimer) { clearInterval(this._pingTimer); this._pingTimer = null; }
-                if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
-                if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
             }
         };
 

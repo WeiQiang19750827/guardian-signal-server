@@ -1,12 +1,11 @@
 const express = require('express');
 const http = require('http');
 const { ExpressPeerServer } = require('peer');
-const { WebSocketServer } = require('ws');
 const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '2.0.7';
+const VERSION = '2.0.9';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -43,86 +42,61 @@ function createLogger(prefix) {
 const log = createLogger('PEERJS');
 const relayLog = createLogger('RELAY');
 
-// v2.0.2: WebSocket relay rooms (替代公共 MQTT broker)
-const relayRooms = new Map();
-
 const app = express();
 const server = http.createServer(app);
 
-// v2.0.4: WebSocket relay — 共享主 server，仅拦截 /relay 路径，不干扰 PeerJS
-const wss = new WebSocketServer({ noServer: true });
-
-server.on('upgrade', (request, socket, head) => {
-  try {
-    const url = new URL(request.url, 'http://localhost');
-    if (url.pathname === '/relay') {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
-    }
-    // 非 /relay 路径不做任何事，由 PeerJS 处理
-  } catch(e) {
-    // URL 解析失败忽略，不 destroy socket（可能被其他 handler 需要）
-  }
-});
-
-wss.on('connection', (ws, request) => {
-  try {
-    const url = new URL(request.url, 'http://localhost');
-    const code = (url.searchParams.get('code') || '').trim();
-    const role = url.searchParams.get('role') || 'unknown';
-    
-    if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
-      ws.close(4000, 'invalid code');
-      return;
-    }
-    
-    if (!relayRooms.has(code)) {
-      relayRooms.set(code, new Set());
-    }
-    const room = relayRooms.get(code);
-    room.add(ws);
-    
-    relayLog.ok(`[room ${code}] ${role} connected (${room.size} in room)`);
-    
-    ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.t === 'ping') {
-          ws.send(JSON.stringify({t:'pong'}));
-          return;
-        }
-      } catch(e) {}
-      const peers = relayRooms.get(code);
-      if (!peers) return;
-      for (const client of peers) {
-        if (client !== ws && client.readyState === 1) {
-          try { client.send(data); } catch(e) {}
-        }
-      }
-    });
-    
-    ws.on('close', () => {
-      const peers = relayRooms.get(code);
-      if (peers) {
-        peers.delete(ws);
-        relayLog.warn(`[room ${code}] ${role} left (${peers.size} remaining)`);
-        if (peers.size === 0) {
-          relayRooms.delete(code);
-          relayLog.ok(`[room ${code}] closed`);
-        }
-      }
-    });
-    
-    ws.on('error', (err) => {
-      relayLog.err(`[room ${code}] ${role} error: ${err.message}`);
-    });
-  } catch(e) {
-    relayLog.err('connection handler error: ' + e.message);
-  }
-});
-
 app.use(express.json());
+
+// v2.0.9: HTTP 长轮询 relay (替代 WebSocket relay，解决 Railway 代理阻截 WebSocket 升级问题)
+const relayQueues = new Map();
+const relayPollWaits = new Map();
+
+app.post('/relay/msg', (req, res) => {
+    const { code, role, data } = req.body;
+    if (!code || !role || !data) {
+        return res.status(400).json({ error: 'missing required fields: code, role, data' });
+    }
+    if (!relayQueues.has(code)) relayQueues.set(code, { host: [], client: [] });
+    const queue = relayQueues.get(code);
+    const targetRole = role === 'host' ? 'client' : 'host';
+    queue[targetRole].push(data);
+    const key = code + '_' + targetRole;
+    const waits = relayPollWaits.get(key);
+    if (waits && waits.length > 0) {
+        const w = waits.shift();
+        clearTimeout(w.timer);
+        w.resolve();
+    }
+    relayLog.ok(`[room ${code}] ${role} -> ${targetRole}: ${JSON.stringify(data).substring(0,80)}`);
+    res.json({ status: 'ok' });
+});
+
+app.get('/relay/poll/:code', (req, res) => {
+    const code = req.params.code;
+    const role = req.query.role || 'host';
+    if (!relayQueues.has(code)) relayQueues.set(code, { host: [], client: [] });
+    const queue = relayQueues.get(code);
+    if (queue[role].length > 0) {
+        const messages = queue[role].splice(0);
+        return res.json({ status: 'ok', messages });
+    }
+    const key = code + '_' + role;
+    if (!relayPollWaits.has(key)) relayPollWaits.set(key, []);
+    const timer = setTimeout(() => {
+        const waits = relayPollWaits.get(key) || [];
+        const idx = waits.findIndex(w => w.res === res);
+        if (idx >= 0) waits.splice(idx, 1);
+        res.json({ status: 'ok', messages: [] });
+    }, 8000);
+    relayPollWaits.get(key).push({
+        resolve: () => {
+            const msgs = queue[role].splice(0);
+            res.json({ status: 'ok', messages: msgs });
+        },
+        timer,
+        res
+    });
+});
 
 function corsMiddleware(req, res, next) {
   res.header('Access-Control-Allow-Origin', '*');
@@ -258,8 +232,8 @@ app.get('/health', (req, res) => {
     turn: turnCredentials(),
     relay: {
       available: true,
-      endpoint: '/relay',
-      protocol: 'wss',
+      endpoint: '/relay/poll/:code',
+      protocol: 'http',
       mode: 'always_available'
     },
     rooms: {
@@ -425,11 +399,33 @@ function cleanupExpiredRooms() {
 
 setInterval(cleanupExpiredRooms, ROOM_CLEANUP_INTERVAL);
 
+function cleanupExpiredRelayQueues() {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [code, queue] of relayQueues) {
+    const total = queue.host.length + queue.client.length;
+    if (total === 0) {
+      const keyH = code + '_host';
+      const keyC = code + '_client';
+      const waitsH = relayPollWaits.get(keyH);
+      const waitsC = relayPollWaits.get(keyC);
+      if ((!waitsH || waitsH.length === 0) && (!waitsC || waitsC.length === 0)) {
+        relayQueues.delete(code);
+        cleaned++;
+      }
+    }
+  }
+  if (cleaned > 0) relayLog.ok('cleaned ' + cleaned + ' stale relay queues');
+}
+setInterval(cleanupExpiredRelayQueues, 60000);
+
 function gracefulShutdown(signal) {
   log.warn('received ' + signal + ', graceful shutdown...');
   log.info('closing ' + rooms.size + ' rooms...');
   rooms.clear();
   peerRoomMap.clear();
+  relayQueues.clear();
+  relayPollWaits.clear();
   server.close(() => {
     log.ok('all connections closed, server stopped');
     process.exit(0);
@@ -446,9 +442,10 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 server.listen(PORT, '0.0.0.0', () => {
   log.ok('========================================');
   log.ok('  Guardian Signaling Server v' + VERSION);
-  log.ok('  PeerJS: /peerjs  HTTP Pairing');
+  log.ok('  PeerJS: /peerjs  HTTP Pairing  HTTP Relay');
   log.ok('  HTTP on 0.0.0.0:' + PORT);
   log.ok('  local IP: ' + (getLocalIP() || 'unknown'));
   log.ok('  /health  /rooms  /network  /pair/:code/status');
+  log.ok('  POST /relay/msg  GET /relay/poll/:code');
   log.ok('========================================');
 });
