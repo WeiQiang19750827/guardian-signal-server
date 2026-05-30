@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.4</title>
+    <title>守护者 Guardian v2.0.5</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -4540,6 +4540,7 @@
 
                 pc.oniceconnectionstatechange = function() {
                     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                        self._retryCount = 0;
                         if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
                         if (self.dc && self.dc.readyState === 'open') {
                             if (self.onconnect) self.onconnect();
@@ -4572,6 +4573,7 @@
                 if (!this.dc) return;
                 var self = this;
                 this.dc.onopen = function() {
+                    self._retryCount = 0;
                     if (self.pc && (self.pc.iceConnectionState === 'connected' || self.pc.iceConnectionState === 'completed')) {
                         if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
                         if (self.onconnect) self.onconnect();
@@ -4599,9 +4601,22 @@
             },
 
             connect(code, isHost) {
+                // 清理旧 WebSocket，防止陈旧回调
+                if (this.ws) {
+                    try {
+                        this.ws.onopen = null;
+                        this.ws.onclose = null;
+                        this.ws.onerror = null;
+                        this.ws.onmessage = null;
+                        if (this.ws.readyState === 0 || this.ws.readyState === 1) this.ws.close();
+                    } catch(e) {}
+                }
                 this.roomId = code;
                 this.isHost = isHost;
                 this._connecting = true;
+                // 每次 connect 递增世代号，陈旧回调通过 gen 检查跳过
+                this._connGen = (this._connGen || 0) + 1;
+                var gen = this._connGen;
                 var self = this;
                 var role = isHost ? 'host' : 'client';
 
@@ -4612,20 +4627,24 @@
                 try {
                     this.ws = new WebSocket(url);
                     this.ws.onopen = function() {
+                        if (gen !== self._connGen) return;
                         self._connecting = false;
-                        self._retryCount = 0;
+                        // _retryCount 不由 onopen 重置（防止 ws 闪断导致退避无效），
+                        // 仅在完整连接建立时重置（ICE connected / DC open / 中继激活）
                         console.log('[Relay] WebSocket已连接');
                         showToast(isHost ? '🔄 等待对方连接...' : '🔄 正在连接...');
-                        // 心跳
+                        // 立即发心跳，防止 Railway 代理空闲超时断开
+                        self._sendMsg({t:'ping'});
                         if (self._pingTimer) clearInterval(self._pingTimer);
                         self._pingTimer = setInterval(function() {
                             if (self.ws && self.ws.readyState === 1) self._sendMsg({t:'ping'});
                         }, 25000);
                         if (!isHost) {
-                            setTimeout(function() { self._sendMsg({t:'ready'}); }, 300);
+                            self._sendMsg({t:'ready'});
                         }
                     };
                     this.ws.onmessage = function(e) {
+                        if (gen !== self._connGen) return;
                         try {
                             var m = JSON.parse(e.data);
                             if (!m.t) return;
@@ -4657,6 +4676,7 @@
                     };
                     this.ws.onerror = function() { /* onclose will fire */ };
                     this.ws.onclose = function(e) {
+                        if (gen !== self._connGen) return;
                         if (self._pingTimer) { clearInterval(self._pingTimer); self._pingTimer = null; }
                         if (self.pc && self.dc) return;
                         console.log('[Relay] WS关闭 code=' + e.code);
@@ -4749,6 +4769,7 @@
                     };
                 }
                 self._setupDC();
+                self._retryCount = 0;
                 showToast('🔁 已切到中继模式');
                 if (self.onconnect) self.onconnect();
             },
