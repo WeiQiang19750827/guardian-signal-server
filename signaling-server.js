@@ -6,7 +6,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '2.0.4';
+const VERSION = '2.0.7';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -86,6 +86,13 @@ wss.on('connection', (ws, request) => {
     relayLog.ok(`[room ${code}] ${role} connected (${room.size} in room)`);
     
     ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.t === 'ping') {
+          ws.send(JSON.stringify({t:'pong'}));
+          return;
+        }
+      } catch(e) {}
       const peers = relayRooms.get(code);
       if (!peers) return;
       for (const client of peers) {
