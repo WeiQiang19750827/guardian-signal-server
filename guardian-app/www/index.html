@@ -2305,7 +2305,7 @@
                 };
                 xhr.onerror = function() { callback(null); };
                 xhr.ontimeout = function() { callback(null); };
-                xhr.open('GET', 'https://guardian-signal-server-production.up.railway.app/health', true);
+                xhr.open('GET', 'https://guardian-sig-v2.up.railway.app/health', true);
                 xhr.send();
             },
 
@@ -2333,7 +2333,7 @@
                     RealTimeSync._railwayHealthy = false;
                     if (callback) callback(false);
                 };
-                xhr.open('GET', 'https://guardian-signal-server-production.up.railway.app/health', true);
+                xhr.open('GET', 'https://guardian-sig-v2.up.railway.app/health', true);
                 xhr.send();
             },
 
@@ -2735,7 +2735,7 @@
                 this.authCodeExpiry = Date.now() + this.AUTH_CODE_TTL;
                 var pendingResult = { code: this.authCode, expiresAt: this.authCodeExpiry };
 
-                this._pairServer = this._pairServer || 'https://guardian-signal-server-production.up.railway.app';
+                this._pairServer = this._pairServer || 'https://guardian-sig-v2.up.railway.app';
                 fetch(self._pairServer + '/pair', { method: 'POST' })
                     .then(function(r){ return r.json(); })
                     .then(function(data){
@@ -2904,7 +2904,7 @@
 
                 // v1.108: 改用 HTTP /pair/:code/join 校验，再走 MQTT 信令链
                 var self = this;
-                this._pairServer = this._pairServer || 'https://guardian-signal-server-production.up.railway.app';
+                this._pairServer = this._pairServer || 'https://guardian-sig-v2.up.railway.app';
                 fetch(self._pairServer + '/pair/' + encodeURIComponent(code) + '/join', { method: 'POST' })
                     .then(function(r){
                         if (r.status === 404) throw new Error('配对码无效或已过期');
@@ -4501,7 +4501,7 @@
             onconnect: null, ondata: null, ondisconnect: null,
 
             _baseUrl() {
-                return (window.RealTimeSync && RealTimeSync._pairServer) || 'https://guardian-signal-server-production.up.railway.app';
+                return (window.RealTimeSync && RealTimeSync._pairServer) || 'https://guardian-sig-v2.up.railway.app';
             },
 
             _resetPC() {
