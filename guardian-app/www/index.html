@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.7</title>
+    <title>守护者 Guardian v2.0.8</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -2694,6 +2694,10 @@
 
                 // v2.0.3: 异步检查 Railway 服务器健康状态
                 this._checkRailwayConnection();
+                if (this._healthCheckTimer) clearInterval(this._healthCheckTimer);
+                this._healthCheckTimer = setInterval(function() {
+                    RealTimeSync._checkRailwayConnection();
+                }, 15000);
 
                 console.log('[P2P] RealTimeSync initialized, deviceId:', this.deviceId);
             },
