@@ -1,11 +1,12 @@
 const express = require('express');
 const http = require('http');
 const { ExpressPeerServer } = require('peer');
+const { WebSocketServer } = require('ws');
 const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '1.106';
+const VERSION = '2.0.3';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -42,8 +43,78 @@ function createLogger(prefix) {
 const log = createLogger('PEERJS');
 const relayLog = createLogger('RELAY');
 
+// v2.0.2: WebSocket relay rooms (替代公共 MQTT broker)
+const relayRooms = new Map();
+
 const app = express();
 const server = http.createServer(app);
+
+// v2.0.2: WebSocket relay rooms — 必须放在 server 声明之后
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  try {
+    const url = new URL(request.url, 'http://localhost');
+    if (url.pathname === '/relay') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  } catch(e) {
+    socket.destroy();
+  }
+});
+
+wss.on('connection', (ws, request) => {
+  try {
+    const url = new URL(request.url, 'http://localhost');
+    const code = (url.searchParams.get('code') || '').trim();
+    const role = url.searchParams.get('role') || 'unknown';
+    
+    if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
+      ws.close(4000, 'invalid code');
+      return;
+    }
+    
+    if (!relayRooms.has(code)) {
+      relayRooms.set(code, new Set());
+    }
+    const room = relayRooms.get(code);
+    room.add(ws);
+    
+    relayLog.ok(`[room ${code}] ${role} connected (${room.size} in room)`);
+    
+    ws.on('message', (data) => {
+      const peers = relayRooms.get(code);
+      if (!peers) return;
+      for (const client of peers) {
+        if (client !== ws && client.readyState === 1) {
+          try { client.send(data); } catch(e) {}
+        }
+      }
+    });
+    
+    ws.on('close', () => {
+      const peers = relayRooms.get(code);
+      if (peers) {
+        peers.delete(ws);
+        relayLog.warn(`[room ${code}] ${role} left (${peers.size} remaining)`);
+        if (peers.size === 0) {
+          relayRooms.delete(code);
+          relayLog.ok(`[room ${code}] closed`);
+        }
+      }
+    });
+    
+    ws.on('error', (err) => {
+      relayLog.err(`[room ${code}] ${role} error: ${err.message}`);
+    });
+  } catch(e) {
+    relayLog.err('connection handler error: ' + e.message);
+  }
+});
 
 app.use(express.json());
 
