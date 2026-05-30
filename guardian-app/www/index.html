@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.5</title>
+    <title>守护者 Guardian v2.0.6</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -4614,6 +4614,8 @@
                 this.roomId = code;
                 this.isHost = isHost;
                 this._connecting = true;
+                this._retryCount = 0;
+                if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
                 // 每次 connect 递增世代号，陈旧回调通过 gen 检查跳过
                 this._connGen = (this._connGen || 0) + 1;
                 var gen = this._connGen;
