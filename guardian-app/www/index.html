@@ -2146,6 +2146,8 @@
             _serverDiscoverRetries: 0,
             _serverRetryTimer: null,
             _railwayHealthy: false, // v2.0.3: Railway 服务器健康状态
+            _railwayCheckDone: false, // v2.0.9: 健康检查是否已完成
+            _healthCheckSeq: 0, // v2.0.9: 防止竞态条件
 
             _getLocalIP(callback) {
                 var self = this;
@@ -2282,6 +2284,9 @@
                     try {
                         var data = JSON.parse(xhr.responseText);
                         if (data && data.status === 'ok' && data.turn) {
+                            RealTimeSync._railwayHealthy = true;
+                            RealTimeSync._railwayCheckDone = true;
+                            updateServerStatus();
                             var urls = data.turn.urls || [];
                             var url0 = urls[0] || '';
                             var m = url0.match(/:(\d{4,5})(\?|$)/);
@@ -2309,8 +2314,10 @@
                 xhr.send();
             },
 
-            // v2.0.9: Railway 健康检查（完成后自动刷新 UI）
+            // v2.0.9: Railway 健康检查（防竞态 + 自动刷新 UI）
             _checkRailwayConnection(callback) {
+                RealTimeSync._healthCheckSeq++;
+                var mySeq = RealTimeSync._healthCheckSeq;
                 var xhr = new XMLHttpRequest();
                 xhr.timeout = 5000;
                 xhr.onload = function() {
@@ -2318,22 +2325,32 @@
                         var data = JSON.parse(xhr.responseText);
                         if (data && data.status === 'ok') {
                             RealTimeSync._railwayHealthy = true;
+                            RealTimeSync._railwayCheckDone = true;
                             updateServerStatus();
                             if (callback) callback(true);
                             return;
                         }
                     } catch(e) {}
-                    RealTimeSync._railwayHealthy = false;
+                    if (mySeq === RealTimeSync._healthCheckSeq) {
+                        RealTimeSync._railwayHealthy = false;
+                    }
+                    RealTimeSync._railwayCheckDone = true;
                     updateServerStatus();
                     if (callback) callback(false);
                 };
                 xhr.onerror = function() {
-                    RealTimeSync._railwayHealthy = false;
+                    if (mySeq === RealTimeSync._healthCheckSeq) {
+                        RealTimeSync._railwayHealthy = false;
+                    }
+                    RealTimeSync._railwayCheckDone = true;
                     updateServerStatus();
                     if (callback) callback(false);
                 };
                 xhr.ontimeout = function() {
-                    RealTimeSync._railwayHealthy = false;
+                    if (mySeq === RealTimeSync._healthCheckSeq) {
+                        RealTimeSync._railwayHealthy = false;
+                    }
+                    RealTimeSync._railwayCheckDone = true;
                     updateServerStatus();
                     if (callback) callback(false);
                 };
@@ -8726,7 +8743,6 @@ function doChangeRole(newRole) {
 
 
         function updateP2PStatus() {
-            RealTimeSync._checkRailwayConnection(); // v2.0.3: 每次刷新配对页也检查服务器
             updateServerStatus();
             var status = RealTimeSync.getStatus();
             var dot = document.getElementById('p2pStatusDot');
@@ -8786,15 +8802,21 @@ function doChangeRole(newRole) {
             if (recipientDisconnectSection) recipientDisconnectSection.style.display = showDisconnect ? 'block' : 'none';
         }
 
-        // v2.0.3: 更新服务器连接状态 UI
+        // v2.0.9: 更新服务器连接状态 UI（防误报：首次检查完成前保持等待状态）
         function updateServerStatus() {
+            var done = RealTimeSync._railwayCheckDone;
             var healthy = RealTimeSync._railwayHealthy;
             // 监护人端
             var dot = document.getElementById('serverStatusDot');
             var text = document.getElementById('serverStatusText');
             var badge = document.getElementById('serverStatusBadge');
             if (dot && text && badge) {
-                if (healthy) {
+                if (!done) {
+                    dot.style.background = '#BDC3C7';
+                    text.textContent = '⏳ 检测服务器连接...';
+                    badge.style.background = '#F0F0F0';
+                    badge.style.color = '#7F8C8D';
+                } else if (healthy) {
                     dot.style.background = '#2ECC71';
                     text.textContent = '✅ 已连接服务器';
                     badge.style.background = '#ECFDF5';
@@ -8811,7 +8833,12 @@ function doChangeRole(newRole) {
             var rtext = document.getElementById('recipientServerStatusText');
             var rbadge = document.getElementById('recipientServerStatusBadge');
             if (rdot && rtext && rbadge) {
-                if (healthy) {
+                if (!done) {
+                    rdot.style.background = '#BDC3C7';
+                    rtext.textContent = '⏳ 检测服务器连接...';
+                    rbadge.style.background = '#F0F0F0';
+                    rbadge.style.color = '#7F8C8D';
+                } else if (healthy) {
                     rdot.style.background = '#2ECC71';
                     rtext.textContent = '✅ 已连接服务器';
                     rbadge.style.background = '#ECFDF5';
