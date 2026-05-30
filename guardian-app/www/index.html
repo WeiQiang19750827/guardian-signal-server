@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; connect-src 'self' https: wss: ws: wss://broker-cn.emqx.io wss://broker.emqx.io ws://192.168.3.10:8443 ws://127.0.0.1:8443 ws://localhost:8443 http://192.168.3.10:8443 http://127.0.0.1:8443 http://localhost:8443 http://*:8443 ws://*:8443; img-src 'self' data: blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; connect-src 'self' https: wss: ws: wss://broker-cn.emqx.io wss://broker.emqx.io ws://*:8080 ws://*:8443 http://*:*; img-src 'self' data: blob:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1396,7 +1396,7 @@
                             </div>
                             <div style="margin-bottom: 15px;">
                                 <div style="font-size: 14px; color: #7F8C8D; margin-bottom: 6px;">信令端口</div>
-                                <input type="number" id="serverConfigSignalPort" placeholder="8443" value="8443" style="width: 100%; padding: 12px; border: 1px solid #E0E0E0; border-radius: 8px; font-size: 16px;">
+                                <input type="number" id="serverConfigSignalPort" placeholder="8080" value="8080" style="width: 100%; padding: 12px; border: 1px solid #E0E0E0; border-radius: 8px; font-size: 16px;">
                             </div>
                             <div style="margin-bottom: 15px;">
                                 <div style="font-size: 14px; color: #7F8C8D; margin-bottom: 6px;">TURN 端口</div>
@@ -2290,7 +2290,7 @@
                                 ip: data.publicIP || data.ip,
                                 publicIP: data.publicIP || data.ip,
                                 localIP: data.localIP || data.ip,
-                                signalPort: data.signalPort || 8443,
+                                signalPort: data.signalPort || 8080,
                                 turn: {
                                     available: true,
                                     port: port,
@@ -2420,7 +2420,7 @@
                     if (raw) {
                         var saved = JSON.parse(raw);
                         if (saved && saved.host) {
-                            var url = 'http://' + saved.host + ':' + (saved.signalPort || 8443) + '/health';
+                            var url = 'http://' + saved.host + ':' + (saved.signalPort || 8080) + '/health';
                             var xhr = new XMLHttpRequest();
                             xhr.timeout = 3000;
                             xhr.onload = function() {
@@ -2460,7 +2460,7 @@
                                 var cloudIP = config.ip || config.publicIP;
                                 if (config.status === 'ok' && cloudIP) {
                                 // 验证云端返回的配置
-                                var testUrl = 'http://' + cloudIP + ':' + (config.signalPort || 8443) + '/health';
+                                var testUrl = 'http://' + cloudIP + ':' + (config.signalPort || 8080) + '/health';
                                 var testXhr = new XMLHttpRequest();
                                 testXhr.timeout = 3000;
                                 testXhr.onload = function() {
@@ -2511,7 +2511,7 @@
             _startDiscovery() {
                 var self = this;
                 var publicIPs = this._getPublicIPs();
-                var port = 8443;
+                var port = 8080;
 
                 this._getLocalIP(function(localIP) {
                     console.log('[AutoDiscover] 本机IP:', localIP || '未知');
@@ -3787,9 +3787,9 @@
 
             // 服务器地址配置 - 优先尝试本地
             _servers: [
-                'ws://192.168.3.10:8443',
-                'ws://127.0.0.1:8443',
-                'ws://localhost:8443'
+                'ws://192.168.3.10:8080',
+                'ws://127.0.0.1:8080',
+                'ws://localhost:8080'
             ],
 
             connect(code, role, callbacks, signalConfig) {
@@ -3802,7 +3802,7 @@
                 // 优先级：自动发现 > 局域网IP > 本机
                 var servers = [];
                 if (signalConfig && signalConfig.host) {
-                    var url = 'ws://' + signalConfig.host + ':' + (signalConfig.port || 8443);
+                    var url = 'ws://' + signalConfig.host + ':' + (signalConfig.port || 8080);
                     servers.push(url);
                     console.log('[LocalSignaling] 使用自动发现服务器:', url);
                 }
@@ -10823,7 +10823,7 @@ function doChangeRole(newRole) {
             var host = document.getElementById('serverConfigHost').value.trim();
             var config = {
                 host: host,
-                signalPort: parseInt(document.getElementById('serverConfigSignalPort').value) || 8443,
+                signalPort: parseInt(document.getElementById('serverConfigSignalPort').value) || 8080,
                 turnPort: parseInt(document.getElementById('serverConfigTurnPort').value) || 3478,
                 turnUser: document.getElementById('serverConfigTurnUser').value.trim() || 'guardian',
                 turnPass: document.getElementById('serverConfigTurnPass').value.trim() || ''
@@ -10872,7 +10872,7 @@ function doChangeRole(newRole) {
                 }
                 document.getElementById('cloudIPGistUrl').value = '';
                 document.getElementById('serverConfigHost').value = '';
-                document.getElementById('serverConfigSignalPort').value = '8443';
+                document.getElementById('serverConfigSignalPort').value = '8080';
                 document.getElementById('serverConfigTurnPort').value = '3478';
                 document.getElementById('serverConfigTurnUser').value = '';
                 document.getElementById('serverConfigTurnPass').value = '';
@@ -10891,7 +10891,7 @@ function doChangeRole(newRole) {
             
             var autoFound = RealTimeSync && RealTimeSync._serverConfig;
             if (autoFound) {
-                autoStatus.textContent = '✅ 自动发现: ' + RealTimeSync._serverConfig.ip + ':' + (RealTimeSync._serverConfig.signalPort || 8443);
+                autoStatus.textContent = '✅ 自动发现: ' + RealTimeSync._serverConfig.ip + ':' + (RealTimeSync._serverConfig.signalPort || 8080);
                 autoStatus.style.color = '#10B981';
             } else if (RealTimeSync && RealTimeSync._serverDiscoveryDone) {
                 autoStatus.textContent = 'ℹ️ 自动发现: 未发现本地服务器';
@@ -10907,7 +10907,7 @@ function doChangeRole(newRole) {
                 if (raw) saved = JSON.parse(raw);
             } catch(e) {}
             if (saved && saved.host) {
-                manualStatus.textContent = '✅ 手动配置: ' + saved.host + ':' + (saved.signalPort || 8443);
+                manualStatus.textContent = '✅ 手动配置: ' + saved.host + ':' + (saved.signalPort || 8080);
                 manualStatus.style.color = '#10B981';
             } else {
                 manualStatus.textContent = 'ℹ️ 手动配置: 未设置';
@@ -10940,7 +10940,7 @@ function doChangeRole(newRole) {
             }
             if (saved && saved.host) {
                 document.getElementById('serverConfigHost').value = saved.host;
-                document.getElementById('serverConfigSignalPort').value = saved.signalPort || 8443;
+                document.getElementById('serverConfigSignalPort').value = saved.signalPort || 8080;
                 document.getElementById('serverConfigTurnPort').value = saved.turnPort || 3478;
                 document.getElementById('serverConfigTurnUser').value = saved.turnUser || 'guardian';
                 document.getElementById('serverConfigTurnPass').value = saved.turnPass || '';
