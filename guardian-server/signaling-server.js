@@ -47,6 +47,15 @@ const server = http.createServer(app);
 
 app.use(express.json());
 
+// v2.0.9+: Body parser error handler
+app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        relayLog.err(`JSON parse error on ${req.method} ${req.path}: ${err.message}`);
+        return res.status(400).json({ error: 'invalid JSON' });
+    }
+    next();
+});
+
 // v2.0.9: HTTP 长轮询 relay (替代 WebSocket relay，解决 Railway 代理阻截 WebSocket 升级问题)
 const relayQueues = new Map();
 const relayPollWaits = new Map();

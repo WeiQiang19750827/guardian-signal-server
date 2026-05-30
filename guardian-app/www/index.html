@@ -2309,7 +2309,7 @@
                 xhr.send();
             },
 
-            // v2.0.3: 简单 Railway 健康检查（仅连接性，不处理 TURN）
+            // v2.0.9: Railway 健康检查（完成后自动刷新 UI）
             _checkRailwayConnection(callback) {
                 var xhr = new XMLHttpRequest();
                 xhr.timeout = 5000;
@@ -2318,19 +2318,23 @@
                         var data = JSON.parse(xhr.responseText);
                         if (data && data.status === 'ok') {
                             RealTimeSync._railwayHealthy = true;
+                            updateServerStatus();
                             if (callback) callback(true);
                             return;
                         }
                     } catch(e) {}
                     RealTimeSync._railwayHealthy = false;
+                    updateServerStatus();
                     if (callback) callback(false);
                 };
                 xhr.onerror = function() {
                     RealTimeSync._railwayHealthy = false;
+                    updateServerStatus();
                     if (callback) callback(false);
                 };
                 xhr.ontimeout = function() {
                     RealTimeSync._railwayHealthy = false;
+                    updateServerStatus();
                     if (callback) callback(false);
                 };
                 xhr.open('GET', 'https://guardian-sig-v2.up.railway.app/health', true);
@@ -8628,25 +8632,24 @@ function doChangeRole(newRole) {
         // ========== P2P配对UI处理函数 ==========
 
         function handleGenerateAuthCode() {
-            if (!RealTimeSync._railwayHealthy) {
-                showToast('❌ 服务器未连接，请检查网络');
-                RealTimeSync._checkRailwayConnection(function(ok) {
-                    if (ok) { showToast('✅ 服务器已重新连接，请重试'); }
-                });
-                return;
+            function doGenerate() {
+                var result = RealTimeSync.generateAuthCode();
+                var display = document.getElementById('authCodeDisplay');
+                var value = document.getElementById('authCodeValue');
+                var expiry = document.getElementById('authCodeExpiry');
+                var btn = document.getElementById('generateCodeBtn');
+                if (display) display.style.display = 'block';
+                if (value) value.textContent = result.code;
+                if (btn) { btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
+                updateP2PStatus();
+                updateAuthCodeExpiry();
             }
-            var result = RealTimeSync.generateAuthCode();
-            var display = document.getElementById('authCodeDisplay');
-            var value = document.getElementById('authCodeValue');
-            var expiry = document.getElementById('authCodeExpiry');
-            var btn = document.getElementById('generateCodeBtn');
-
-            if (display) display.style.display = 'block';
-            if (value) value.textContent = result.code;
-            if (btn) { btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
-
-            updateP2PStatus();
-            updateAuthCodeExpiry();
+            if (RealTimeSync._railwayHealthy) { doGenerate(); return; }
+            showToast('📡 检测服务器连接...');
+            RealTimeSync._checkRailwayConnection(function(ok) {
+                if (!ok) { showToast('❌ 服务器无法连接，请检查网络'); return; }
+                doGenerate();
+            });
         }
 
         var authCodeExpiryTimer = null;
@@ -8669,43 +8672,45 @@ function doChangeRole(newRole) {
         }
 
         function handleConnectWithCode() {
-            if (!RealTimeSync._railwayHealthy) {
-                showToast('❌ 服务器未连接，请检查网络');
-                RealTimeSync._checkRailwayConnection(function(ok) {
-                    if (ok) { showToast('✅ 服务器已重新连接，请重新输入授权码'); }
-                });
-                return;
+            function doConnect() {
+                var input = document.getElementById('inputAuthCode');
+                if (!input) return;
+                var code = input.value.trim();
+                if (code.length !== 6) {
+                    showToast('❌ 请输入6位授权码');
+                    return;
+                }
+                showToast('🔄 正在连接...');
+                RealTimeSync.connectWithCode(code);
+                updateP2PStatus();
             }
-            var input = document.getElementById('inputAuthCode');
-            if (!input) return;
-            var code = input.value.trim();
-            if (code.length !== 6) {
-                showToast('❌ 请输入6位授权码');
-                return;
-            }
-            showToast('🔄 正在连接...');
-            RealTimeSync.connectWithCode(code);
-            updateP2PStatus();
+            if (RealTimeSync._railwayHealthy) { doConnect(); return; }
+            showToast('📡 检测服务器连接...');
+            RealTimeSync._checkRailwayConnection(function(ok) {
+                if (!ok) { showToast('❌ 服务器无法连接，请检查网络'); return; }
+                doConnect();
+            });
         }
 
         function recipientConnectWithCode() {
-            if (!RealTimeSync._railwayHealthy) {
-                showToast('❌ 服务器未连接，请检查网络');
-                RealTimeSync._checkRailwayConnection(function(ok) {
-                    if (ok) { showToast('✅ 服务器已重新连接，请重新输入授权码'); }
-                });
-                return;
+            function doConnect() {
+                var input = document.getElementById('recipientInputAuthCode');
+                if (!input) return;
+                var code = input.value.trim();
+                if (code.length !== 6) {
+                    showToast('❌ 请输入6位授权码');
+                    return;
+                }
+                showToast('🔄 正在连接...');
+                RealTimeSync.connectWithCode(code);
+                updateP2PStatus();
             }
-            var input = document.getElementById('recipientInputAuthCode');
-            if (!input) return;
-            var code = input.value.trim();
-            if (code.length !== 6) {
-                showToast('❌ 请输入6位授权码');
-                return;
-            }
-            showToast('🔄 正在连接...');
-            RealTimeSync.connectWithCode(code);
-            updateP2PStatus();
+            if (RealTimeSync._railwayHealthy) { doConnect(); return; }
+            showToast('📡 检测服务器连接...');
+            RealTimeSync._checkRailwayConnection(function(ok) {
+                if (!ok) { showToast('❌ 服务器无法连接，请检查网络'); return; }
+                doConnect();
+            });
         }
 
         function handleDisconnect() {
