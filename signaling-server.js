@@ -6,7 +6,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '2.0.3';
+const VERSION = '2.0.4';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -49,7 +49,7 @@ const relayRooms = new Map();
 const app = express();
 const server = http.createServer(app);
 
-// v2.0.2: WebSocket relay rooms — 必须放在 server 声明之后
+// v2.0.4: WebSocket relay — 共享主 server，仅拦截 /relay 路径，不干扰 PeerJS
 const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
@@ -59,11 +59,10 @@ server.on('upgrade', (request, socket, head) => {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });
-    } else {
-      socket.destroy();
     }
+    // 非 /relay 路径不做任何事，由 PeerJS 处理
   } catch(e) {
-    socket.destroy();
+    // URL 解析失败忽略，不 destroy socket（可能被其他 handler 需要）
   }
 });
 

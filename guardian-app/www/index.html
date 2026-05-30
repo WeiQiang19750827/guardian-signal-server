@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.3</title>
+    <title>守护者 Guardian v2.0.4</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -4493,7 +4493,7 @@
         const RelaySignaling = {
             ws: null, pc: null, dc: null,
             roomId: null, isHost: false,
-            _pingTimer: null, _connecting: false, _retryTimer: null,
+            _pingTimer: null, _connecting: false, _retryTimer: null, _retryCount: 0, _maxRetries: 5,
             _relayTimer: null, _relayActive: false,
             _iceCandidateQueue: [],
             onconnect: null, ondata: null, ondisconnect: null,
@@ -4613,6 +4613,7 @@
                     this.ws = new WebSocket(url);
                     this.ws.onopen = function() {
                         self._connecting = false;
+                        self._retryCount = 0;
                         console.log('[Relay] WebSocket已连接');
                         showToast(isHost ? '🔄 等待对方连接...' : '🔄 正在连接...');
                         // 心跳
@@ -4660,9 +4661,14 @@
                         if (self.pc && self.dc) return;
                         console.log('[Relay] WS关闭 code=' + e.code);
                         self._connecting = true;
-                        if (e.code !== 4000) {
-                            showToast('📡 中继断开，正在重连...');
-                            setTimeout(function() { self.connect(code, isHost); }, 5000);
+                        if (e.code !== 4000 && self._retryCount < self._maxRetries) {
+                            self._retryCount++;
+                            var delay = Math.min(5000 * Math.pow(2, self._retryCount - 1), 80000);
+                            showToast('📡 中继断开(' + self._retryCount + '/' + self._maxRetries + ')，' + (delay / 1000) + '秒后重连...');
+                            if (self._retryTimer) clearTimeout(self._retryTimer);
+                            self._retryTimer = setTimeout(function() { self.connect(code, isHost); }, delay);
+                        } else if (self._retryCount >= self._maxRetries) {
+                            showToast('❌ 信令中继连接失败，请检查网络后重试');
                         }
                     };
                 } catch(e) {
