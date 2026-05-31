@@ -15,7 +15,8 @@
   "cordova": {
     "platforms": [
       "android"
-    ]
+    ],
+    "plugins": {}
   },
   "devDependencies": {
     "cordova-android": "^15.0.0"

@@ -1,33 +1,27 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.guardian.app" version="1.0.13" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
-    <name>Guardian</name>
-    <description>守护者 Guardian - 智能守护应用</description>
+<widget id="com.guardian.app" version="3.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+    <name>守护者 Guardian</name>
+    <description>Guardian P2P Communication App</description>
     <author email="guardian@app.com">Guardian Team</author>
     <content src="index.html" />
     <access origin="*" />
-    <allow-navigation href="*" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
-    <allow-intent href="wss://*/*" />
-    <allow-intent href="ws://*/*" />
     <allow-intent href="tel:*" />
     <allow-intent href="sms:*" />
     <allow-intent href="mailto:*" />
     <allow-intent href="geo:*" />
-    <preference name="UseWideViewPort" value="true" />
-    <preference name="EnableViewportScale" value="false" />
-    <preference name="AllowInlineMediaPlayback" value="false" />
-    <preference name="android-minSdkVersion" value="24" />
-    <preference name="android-targetSdkVersion" value="34" />
-    <preference name="KeepRunning" value="true" />
-    <preference name="DisallowOverscroll" value="true" />
-    <preference name="InAppBrowserStorageEnabled" value="true" />
+    <allow-navigation href="*" />
     <platform name="android">
         <allow-intent href="market:*" />
-        <preference name="AndroidWindowSplashScreenAnimatedIcon" value="null" />
+        <preference name="android-minSdkVersion" value="24" />
+        <preference name="android-targetSdkVersion" value="36" />
+        <preference name="loadUrlTimeoutValue" value="30000" />
+        <preference name="scheme" value="guardian" />
     </platform>
-    <platform name="ios">
-        <allow-intent href="itms:*" />
-        <allow-intent href="itms-apps:*" />
-    </platform>
+    <preference name="SplashScreen" value="none" />
+    <preference name="SplashScreenDelay" value="0" />
+    <preference name="AutoHideSplashScreen" value="true" />
+    <preference name="FadeSplashScreen" value="false" />
+    <preference name="ShowSplashScreenSpinner" value="false" />
 </widget>
