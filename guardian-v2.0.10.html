@@ -2148,6 +2148,7 @@
             _railwayHealthy: false, // v2.0.3: Railway 服务器健康状态
             _railwayCheckDone: false, // v2.0.9: 健康检查是否已完成
             _healthCheckSeq: 0, // v2.0.9: 防止竞态条件
+            _connecting: false, // v2.0.10: 连接中状态（UI 过渡）
 
             _getLocalIP(callback) {
                 var self = this;
@@ -2916,6 +2917,7 @@
                     return;
                 }
                 
+                this._connecting = true;
                 this._cleanupConnection();
                 
                 this.authCode = code;
@@ -2936,6 +2938,8 @@
                         self._enterRelaySignaling('client', code);
                     })
                     .catch(function(e){
+                        self._connecting = false;
+                        updateP2PStatus();
                         console.error('[P2P v1.108] HTTP配对失败:', e);
                         self._dispatch('p2p:error', { type: 'notFound', message: e.message || '配对失败' });
                         showToast('❌ ' + (e.message || '配对失败'));
@@ -4803,6 +4807,7 @@
         RealTimeSync._mqttBackupStarted = false;
         RealTimeSync._connectSig = function(dc) {
             this._sigDc = dc; this._useSig = true;
+            this._connecting = false;
             var self = this;
             dc.onmessage = function(e) { try { self._handleIncomingData(JSON.parse(e.data)); } catch(err) {} };
             dc.onclose = function() { self.isConnected = false; self._dispatch('p2p:disconnected', {}); };
@@ -8780,6 +8785,12 @@ function doChangeRole(newRole) {
                 borderColor = '#F39C12';
                 statusText = '🟡 等待连接';
                 statusDetail = '授权码: ' + status.authCode + '，等待被监护人输入';
+                showDisconnect = false;
+            } else if (status._connecting) {
+                dotColor = '#F39C12';
+                borderColor = '#F39C12';
+                statusText = '🔄 正在连接...';
+                statusDetail = '正在连接远程设备，请稍候...';
                 showDisconnect = false;
             } else {
                 dotColor = '#BDC3C7';
