@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.10</title>
+    <title>守护者 Guardian v2.0.12</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -4520,7 +4520,7 @@
         const RelaySignaling = {
             pc: null, dc: null,
             roomId: null, isHost: false,
-            _relayTimer: null, _relayActive: false,
+            _relayTimer: null, _fallbackTimer: null, _relayActive: false,
             _iceCandidateQueue: [],
             _pollAbort: false,
             onconnect: null, ondata: null, ondisconnect: null,
@@ -4635,7 +4635,7 @@
                 }).catch(function(err){ console.warn('[Relay] send err:', err); });
             },
 
-            // v2.0.9: HTTP 长轮询连接 (替代 WebSocket connect)
+            // v2.0.11: 全局30秒后备定时器（无论WebRTC流程是否启动，超时后强制切到HTTP中继）
             connect(code, isHost) {
                 if (this._pollAbort) this._pollAbort = true;
                 this.roomId = code;
@@ -4644,6 +4644,13 @@
                 var self = this;
                 console.log('[Relay HTTP] 启动长轮询, code=' + code + ', role=' + (isHost ? 'host' : 'client'));
                 showToast(isHost ? '🔄 等待对方连接...' : '🔄 正在连接...');
+                if (this._fallbackTimer) clearTimeout(this._fallbackTimer);
+                this._fallbackTimer = setTimeout(function() {
+                    if (!self._relayActive && !(window.RealTimeSync && window.RealTimeSync.isConnected)) {
+                        console.warn('[Relay] 全局后备超时(30s)，切换到中继模式');
+                        self._activateRelay();
+                    }
+                }, 30000);
                 self._pollLoop(code, isHost ? 'host' : 'client');
                 if (!isHost) {
                     setTimeout(function() { self._sendMsg({t:'ready'}); }, 500);
@@ -4766,6 +4773,7 @@
                 if (this._relayActive) return;
                 this._relayActive = true;
                 if (this._relayTimer) { clearTimeout(this._relayTimer); this._relayTimer = null; }
+                if (this._fallbackTimer) { clearTimeout(this._fallbackTimer); this._fallbackTimer = null; }
                 if (this.pc) { try { this.pc.close(); } catch(e) {} this.pc = null; }
                 var self = this;
                 if (!self.dc || self.dc.readyState !== 'open') {
@@ -4794,6 +4802,7 @@
             close() {
                 this._pollAbort = true;
                 if (this._relayTimer) { clearTimeout(this._relayTimer); this._relayTimer = null; }
+                if (this._fallbackTimer) { clearTimeout(this._fallbackTimer); this._fallbackTimer = null; }
                 this._resetPC();
             }
         };
@@ -4812,6 +4821,12 @@
             var self = this;
             dc.onmessage = function(e) { try { self._handleIncomingData(JSON.parse(e.data)); } catch(err) {} };
             dc.onclose = function() { self.isConnected = false; self._dispatch('p2p:disconnected', {}); };
+            // v2.0.11: 设置 relay ondata 转发（HTTP中继模式收到 relay_data 时调用）
+            RelaySignaling.ondata = function(data) {
+                if (RealTimeSync && RealTimeSync._sigDc && RealTimeSync._sigDc.onmessage) {
+                    RealTimeSync._sigDc.onmessage({ data: data });
+                }
+            };
             this.isConnected = true;
             this._dispatch('p2p:connected', {});
             this._dispatch('p2p:networkStatus', { online: true });
