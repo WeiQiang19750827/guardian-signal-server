@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v2.0.12</title>
+    <title>守护者 Guardian v2.0.13</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -2954,9 +2954,12 @@
                 showToast('📡 连接信令中继...');
                 self._useSig = false;
                 RelaySignaling.onconnect = function() {
+                    console.log('[P2P] onconnect 触发, isConnected=' + (window.RealTimeSync ? RealTimeSync.isConnected : 'no_rt') + ', dcState=' + (RelaySignaling.dc ? RelaySignaling.dc.readyState : 'no_dc') + ', relayActive=' + RelaySignaling._relayActive);
                     if (window.RealTimeSync && !RealTimeSync.isConnected && RelaySignaling.dc && RelaySignaling.dc.readyState === 'open') {
                         console.log('[P2P v2.0.9] HTTP信令连接成功');
                         RealTimeSync._connectSig(RelaySignaling.dc);
+                    } else {
+                        console.warn('[P2P] onconnect 条件未满足: isConnected=' + (RealTimeSync ? RealTimeSync.isConnected : '?') + ', dc=' + (RelaySignaling.dc ? RelaySignaling.dc.readyState : 'null'));
                     }
                 };
                 RelaySignaling.ondisconnect = function() {
@@ -4570,12 +4573,14 @@
                 };
 
                 pc.oniceconnectionstatechange = function() {
+                    console.log('[ICE] 状态: ' + pc.iceConnectionState);
                     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
                         if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
                         if (self.dc && self.dc.readyState === 'open') {
                             if (self.onconnect) self.onconnect();
                         }
                     } else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                        console.warn('[ICE] 连接失败, state=' + pc.iceConnectionState);
                         if (self.ondisconnect) self.ondisconnect();
                     }
                 };
@@ -4614,11 +4619,22 @@
             },
 
             _waitGather(pc) {
+                var self = this;
                 return new Promise(function(resolve) {
-                    if (pc.iceGatheringState === 'complete') { resolve(); return; }
-                    var timer = setTimeout(function() { resolve(); }, 10000);
+                    if (pc.iceGatheringState === 'complete') {
+                        console.log('[ICE] 收集完成: host=' + (self._iceTypes ? self._iceTypes.host : 0) + ', srflx=' + (self._iceTypes ? self._iceTypes.srflx : 0) + ', relay=' + (self._iceTypes ? self._iceTypes.relay : 0));
+                        resolve(); return;
+                    }
+                    var timer = setTimeout(function() {
+                        console.log('[ICE] 收集超时(10s), partial: host=' + (self._iceTypes ? self._iceTypes.host : 0) + ', srflx=' + (self._iceTypes ? self._iceTypes.srflx : 0) + ', relay=' + (self._iceTypes ? self._iceTypes.relay : 0));
+                        resolve();
+                    }, 10000);
                     pc.onicegatheringstatechange = function() {
-                        if (pc.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
+                        if (pc.iceGatheringState === 'complete') {
+                            clearTimeout(timer);
+                            console.log('[ICE] 收集完成: host=' + (self._iceTypes ? self._iceTypes.host : 0) + ', srflx=' + (self._iceTypes ? self._iceTypes.srflx : 0) + ', relay=' + (self._iceTypes ? self._iceTypes.relay : 0));
+                            resolve();
+                        }
                     };
                 });
             },
@@ -4772,6 +4788,7 @@
             _activateRelay() {
                 if (this._relayActive) return;
                 this._relayActive = true;
+                console.log('[Relay] 激活中继模式, pc=' + (this.pc ? 'exists' : 'null') + ', dc=' + (this.dc ? this.dc.readyState : 'null'));
                 if (this._relayTimer) { clearTimeout(this._relayTimer); this._relayTimer = null; }
                 if (this._fallbackTimer) { clearTimeout(this._fallbackTimer); this._fallbackTimer = null; }
                 if (this.pc) { try { this.pc.close(); } catch(e) {} this.pc = null; }
