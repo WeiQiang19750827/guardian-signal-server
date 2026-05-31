@@ -44,8 +44,8 @@ echo [OK] Build successful
 :: Step 4: Copy APK
 echo [4/4] Copying APK to project root...
 cd /d "%ROOT%"
-copy /Y "%ROOT%guardian-app\platforms\android\app\build\outputs\apk\debug\app-debug.apk" "%ROOT%guardian-v3.0.1.apk"
-echo [OK] APK: guardian-v3.0.1.apk
+copy /Y "%ROOT%guardian-app\platforms\android\app\build\outputs\apk\debug\app-debug.apk" "%ROOT%guardian-v3.0.2.apk"
+echo [OK] APK: guardian-v3.0.2.apk
 
 echo.
 echo =============================================
