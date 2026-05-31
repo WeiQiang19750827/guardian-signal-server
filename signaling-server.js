@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '2.0.13';
+const VERSION = '2.0.14';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
@@ -44,6 +44,18 @@ const relayLog = createLogger('RELAY');
 
 const app = express();
 const server = http.createServer(app);
+
+// CORS middleware MUST be first for browser-based requests
+function corsMiddleware(req, res, next) {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+}
+app.use(corsMiddleware);
 
 app.use(express.json());
 
@@ -106,17 +118,6 @@ app.get('/relay/poll/:code', (req, res) => {
         res
     });
 });
-
-function corsMiddleware(req, res, next) {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-  next();
-}
-app.use(corsMiddleware);
 
 const peerServer = ExpressPeerServer(server, {
   debug: false,
