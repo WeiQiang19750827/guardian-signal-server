@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8443;
-const VERSION = '2.0.9';
+const VERSION = '2.0.10';
 const ROOM_CLEANUP_INTERVAL = 15000;
 const ROOM_INACTIVE_TIMEOUT = 10 * 60 * 1000;
 const PEERJS_ALIVE_TIMEOUT = 300000;
