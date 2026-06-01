@@ -2,22 +2,17 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; connect-src 'self' https: wss: ws: wss://broker-cn.emqx.io wss://broker.emqx.io ws://*:8080 ws://*:8443 http://*:*; img-src 'self' data: blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; connect-src 'self' https: wss: ws:; img-src 'self' data: blob:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v3.0.5</title>
+    <title>守护者 Guardian v4.0.0</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
-    <!-- v2.0: 引入 QRCode.js（生成）+ jsQR（扫码解析），离线优先二次降级到 jsdelivr -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js" onerror="console.warn('qrcode CDN load failed')"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" onerror="console.warn('jsQR CDN load failed')"></script>
-    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js" onerror="console.warn('heic2any CDN load failed')"></script>
-    <!-- v3.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
+    <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.8.1/dist/socket.io.min.js"
         onerror="console.warn('socket.io CDN load failed')"
         onload="console.log('socket.io CDN loaded')"></script>
@@ -1438,12 +1433,6 @@
                             <div id="serverStatusDot" style="width:8px;height:8px;border-radius:50%;background:#BDC3C7;"></div>
                             <span id="serverStatusText">检测服务器连接...</span>
                         </div>
-                        <!-- v2.0 快捷入口：扫码 / 二维码 / 守护人 / 老人首页 -->
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-                            <button onclick="openV2Host()" style="padding:14px;border:0;border-radius:14px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">📲 生成二维码<br><span style="font-weight:400;font-size:11px;opacity:.85;">含 6 位码</span></button>
-                            <button onclick="openV2Scan()" style="padding:14px;border:0;border-radius:14px;background:#1a2332;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">📷 扫码连接<br><span style="font-weight:400;font-size:11px;opacity:.7;">异地仍可用6位码</span></button>
-                            <button onclick="V2.openGuardianList()" style="padding:14px;border:0;border-radius:14px;background:#fff;color:#0a0e17;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e2e8f0;">👥 多守护人</button>
-                            <button onclick="openV2Elder()" style="padding:14px;border:0;border-radius:14px;background:#fff;color:#0a0e17;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e2e8f0;">👴 老人界面</button>
                         </div>
                         <div id="p2pStatusCard" style="background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid #BDC3C7;">
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
@@ -2107,14 +2096,11 @@
             
             listeners: {},
             deviceId: null,
-            peer: null,
-            conn: null,
             isHost: false,
             authCode: null,
             authCodeExpiry: null,
             isConnected: false,
             peerId: null,
-            offlineQueue: [],
             lastSyncTimestamps: {},
             reconnectTimer: null,
             heartbeatTimer: null,
@@ -2125,24 +2111,18 @@
             HEARTBEAT_INTERVAL: 15000,
             FAST_HEARTBEAT_INTERVAL: 5000,
             RECONNECT_DELAY: 2000,
-            MAX_RECONNECT_ATTEMPTS: 15,
-            reconnectAttempts: 0,
             lastHeartbeatAck: null,
             connectionLatency: 0,
             missedHeartbeats: 0,
             MAX_MISSED_HEARTBEATS: 3,
             MAX_MISSED_FAST_HEARTBEATS: 4,
             HEARTBEAT_TIMEOUT: 8000,
-            connectionQuality: 'unknown',
             networkOnline: true,
             connectionStartTime: null,
             iceCandidateStats: [],
             
             // v1.59 新增: ICE Restart 追踪
             _lastNetworkType: null,
-            connectionQualityHistory: [],
-            poorQualityDuration: 0,
-            excellentQualityDuration: 0,
             
             // v1.64: 云端IP自动发现 + 全自动智能寻址（优先云端，其次手动，然后公网IP历史，最后局域网并行扫描）
             _serverConfig: null,
@@ -2783,144 +2763,9 @@
                 return pendingResult;
             },
 
-            // ========== v1.59: 多信令链 ==========
-            _trySignalingChain(role, code) {
-                if (!code) code = this.authCode;
-                const self = this;
-                const useLocal = role === 'host';
-                
-                function tryPeerJS() {
-                    console.log('[P2P 信令链] 2/3 尝试 PeerJS...');
-                    showToast('📡 连接 PeerJS 信令...');
-                    try {
-                        self.peer = new Peer(
-                            useLocal ? self._peerIdFromAuthCode(code) : undefined,
-                            self.getPeerConfig()
-                        );
-                        // v1.69: PeerJS超时保护 - 10秒内未连接成功则降级到MQTT
-                        self._mqttFallback = tryMQTT;
-                        self._peerFallbackTimer = setTimeout(function() {
-                            self._peerFallbackTimer = null;
-                            console.log('[P2P 信令链] ⏰ PeerJS超时(10s)，降级到MQTT');
-                            showToast('📡 PeerJS 超时，尝试 MQTT...');
-                            if (self.peer) {
-                                try { self.peer.destroy(); } catch(e) {}
-                                self.peer = null;
-                            }
-                            tryMQTT();
-                        }, 10000);
-                        self._setupPeerEvents(role, code);
-                    } catch(e) {
-                        console.error('[P2P] PeerJS 创建失败:', e);
-                        if (self._peerFallbackTimer) {
-                            clearTimeout(self._peerFallbackTimer);
-                            self._peerFallbackTimer = null;
-                        }
-                        tryMQTT();
-                    }
-                }
-
-                function tryMQTT() {
-                    console.log('[P2P 信令链] 3/3 尝试 MQTT 信令...');
-                    showToast('📡 连接 MQTT 信令...');
-                    self._useSig = false;
-                    MqttSignaling.onconnect = function() {
-                        if (window.RealTimeSync && !RealTimeSync.isConnected && MqttSignaling.dc && MqttSignaling.dc.readyState === 'open') {
-                            console.log('[P2P] MQTT 信令连接成功');
-                            RealTimeSync._connectSig(MqttSignaling.dc);
-                            if (useLocal) {
-                                RealTimeSync._dispatch('p2p:codeReady', { 
-                                    code: RealTimeSync.authCode, 
-                                    expiresAt: RealTimeSync.authCodeExpiry 
-                                });
-                            }
-                        }
-                    };
-                    MqttSignaling.ondisconnect = function() {
-                        if (window.RealTimeSync && RealTimeSync.isConnected && RealTimeSync._useSig) {
-                            RealTimeSync.isConnected = false;
-                            RealTimeSync._dispatch('p2p:disconnected', {});
-                        }
-                    };
-                    MqttSignaling.connect(code, useLocal);
-                }
-
-                // v1.59: 先用 Local WS 信令
-                console.log('[P2P 信令链] 1/3 尝试本地 WS 信令...');
-                showToast('📡 连接本地信令服务器...');
-                var signalConfig = null;
-                if (self._serverConfig) {
-                    signalConfig = {
-                        host: self._serverConfig.ip,
-                        port: self._serverConfig.signalPort
-                    };
-                }
-                var sigTimeout = setTimeout(function() {
-                    sigTimeout = null;
-                    console.log('[P2P 信令链] ⏰ 本地WS信令超时(20s)，对端可能在不同网络，尝试下一信令');
-                    showToast('📡 本地信令超时，尝试云端...');
-                    if (LocalSignaling.ws) {
-                        try { LocalSignaling.ws.onclose = null; LocalSignaling.ws.close(); } catch(e) {}
-                    }
-                    LocalSignaling._connecting = false;
-                    tryPeerJS();
-                }, 20000);
-                LocalSignaling.connect(code, role, {
-                    onready: function() {
-                        if (sigTimeout) { clearTimeout(sigTimeout); sigTimeout = null; }
-                        console.log('[P2P] 本地 WS 信令就绪');
-                        if (useLocal) {
-                            self._dispatch('p2p:codeReady', { code: code, expiresAt: self.authCodeExpiry });
-                        }
-                        self._useSig = true;
-                        self._sigDc = LocalSignaling.dc;
-                        self.isConnected = true;
-                        self._dispatch('p2p:connected', {});
-                        self._dispatch('p2p:networkStatus', { online: true });
-                        self._startHeartbeat();
-                        self._sendQueuedEvents();
-                        // v1.67: Host并行启动MQTT监听(跨网客户端可能通过MQTT连接)
-                        if (useLocal && !self._mqttBackupStarted) {
-                            self._mqttBackupStarted = true;
-                            console.log('[P2P 信令链] Host启动MQTT并行监听(跨网备用)...');
-                            showToast('📡 等待WiFi/4G/5G连接...');
-                            MqttSignaling.onconnect = function() {
-                                if (MqttSignaling.dc && MqttSignaling.dc.readyState === 'open') {
-                                    console.log('[P2P] MQTT跨网备用信令连接建立，替换本地WS');
-                                    if (RealTimeSync._sigDc && RealTimeSync._sigDc !== MqttSignaling.dc) {
-                                        try { RealTimeSync._sigDc.onclose = null; RealTimeSync._sigDc.close(); } catch(e) {}
-                                    }
-                                    RealTimeSync._connectSig(MqttSignaling.dc);
-                                }
-                            };
-                            MqttSignaling.ondisconnect = function() {};
-                            MqttSignaling.connect(code, true);
-                        }
-                    },
-                    onfail: function() {
-                        if (sigTimeout) { clearTimeout(sigTimeout); sigTimeout = null; }
-                        console.log('[P2P 信令链] 本地 WS 失败，尝试 PeerJS');
-                        tryPeerJS();
-                    }
-                }, signalConfig);
-            },
+            
 
             connectWithCode(code) {
-                if (typeof currentRole !== 'undefined' && currentRole === 'demo') {
-                    this.authCode = code;
-                    this.isHost = false;
-                    this.isConnected = true;
-                    this.peerId = this._peerIdFromAuthCode(code);
-                    this.conn = { open: true };
-                    this._demoMode = true;
-                    this._stopHeartbeat();
-                    console.log('[P2P DEMO] 模拟连接成功, code:', code);
-                    this._dispatch('p2p:connected', { peerId: 'demo-' + code });
-                    this._startHeartbeat();
-                    this._sendQueuedEvents();
-                    return;
-                }
-                
                 this._connecting = true;
                 this._cleanupConnection();
                 
@@ -2998,97 +2843,12 @@
                 }, 2000);
             },
 
-            _setupPeerEvents(mode, code) {
-                if (!this.peer) return;
-                
-                console.log('[P2P] Setting up peer events (v1.59), mode:', mode, 'code:', code);
-                
-                this.peer.on('open', (id) => {
-                    // v1.69: PeerJS连接成功，清除超时降级
-                    if (this._peerFallbackTimer) {
-                        clearTimeout(this._peerFallbackTimer);
-                        this._peerFallbackTimer = null;
-                    }
-                    console.log('[P2P] ✅ Peer open, mode:', mode, 'id:', id);
-                    console.log('[P2P] 📡 Signaling server connected');
-                    this._dispatch('p2p:status', { status: 'signaling_connected', mode: mode });
-                    
-                    if (mode === 'host') {
-                        this._dispatch('p2p:codeReady', { code: this.authCode, expiresAt: this.authCodeExpiry });
-                        showToast('✅ 等待对方连接...');
-                    } else {
-                        console.log('[P2P] 📡 Client connecting to peer:', this.peerId);
-                        showToast('🔗 正在建立连接...');
-                        const conn = this.peer.connect(this.peerId, { 
-                            reliable: true,
-                            serialization: 'json',
-                            reliableOpts: { ordered: true }
-                        });
-                        this._setupConnection(conn);
-                    }
-                });
-
-                this.peer.on('connection', (conn) => {
-                    console.log('[P2P] 📨 Incoming connection from:', conn.peer);
-                    this._dispatch('p2p:status', { status: 'incoming_connection' });
-                    this._setupConnection(conn);
-                });
-
-                this.peer.on('error', (err) => {
-                    console.error('[P2P] ❌ Peer error:', err.type, err.message);
-                    this._dispatch('p2p:error', { type: err.type, message: err.message });
-                    
-                    // v1.69: PeerJS网络错误直接降级到MQTT（在中国PeerJS被墙）
-                    if (err.type === 'network') {
-                        if (this._peerFallbackTimer) {
-                            clearTimeout(this._peerFallbackTimer);
-                            this._peerFallbackTimer = null;
-                        }
-                        if (this._mqttFallback) {
-                            console.log('[P2P 信令链] PeerJS网络错误，降级到MQTT');
-                            if (this.peer) {
-                                try { this.peer.destroy(); } catch(e) {}
-                                this.peer = null;
-                            }
-                            this._mqttFallback();
-                            return;
-                        }
-                    }
-                    
-                    if (err.type === 'unavailable-id') {
-                        this.authCode = this._generateAuthCode();
-                        this.authCodeExpiry = Date.now() + this.AUTH_CODE_TTL;
-                        this.peerId = this._peerIdFromAuthCode(this.authCode);
-                        this.peer.destroy();
-                        setTimeout(() => this.generateAuthCode(), 500);
-                    } else if (err.type === 'peer-unavailable') {
-                        this._dispatch('p2p:error', { type: 'notFound', message: '授权码无效或已过期，请确认双方网络连接正常' });
-                        showToast('❌ 授权码无效，请重试');
-                    } else if (err.type === 'network') {
-                        showToast('❌ 网络错误，请检查网络连接');
-                    } else {
-                        showToast(`❌ 连接错误: ${err.message}`);
-                    }
-                });
-
-                this.peer.on('disconnected', () => {
-                    console.log('[P2P] ⚠️ Peer disconnected from signaling');
-                    this._dispatch('p2p:status', { status: 'signaling_disconnected' });
-                    if (this.peer && !this.peer.destroyed) {
-                        console.log('[P2P] 🔄 Attempting to reconnect to signaling...');
-                        this.peer.reconnect();
-                    }
-                });
-            },
+            
 
             _setupConnection(conn) {
-                this.conn = conn;
                 this.connectionStartTime = Date.now();
                 this.iceCandidateStats = [];
                 this.connectionStage = 'connecting';
-                this.poorQualityDuration = 0;
-                this.excellentQualityDuration = 0;
-                this.connectionQuality = 'unknown';
                 
                 console.log('[P2P] 🔗 Setting up connection (v1.59)...');
                 this._dispatch('p2p:status', { status: 'establishing' });
@@ -3098,7 +2858,6 @@
                     console.log('[P2P] ✅ Connection established with:', conn.peer, 'time to connect:', timeToConnect + 'ms');
                     this.connectionStage = 'connected';
                     this.isConnected = true;
-                    this.reconnectAttempts = 0;
                     this._lastNetworkType = this._getNetworkEffectiveType();
                     this._startHeartbeat();
                     this._sendQueuedEvents();
@@ -3138,16 +2897,6 @@
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
                 }
-                if (this.conn && typeof this.conn.close === 'function') {
-                    this.conn.close();
-                    this.conn = null;
-                } else {
-                    this.conn = null;
-                }
-                if (this.peer) {
-                    this.peer.destroy();
-                    this.peer = null;
-                }
                 if (this._useSig && this._sigDc) {
                     try { MqttSignaling.close(); } catch(e) {}
                     try { LocalSignaling.close(); } catch(e) {}
@@ -3155,14 +2904,7 @@
                     this._useSig = false;
                 }
                 this.isConnected = false;
-                this.reconnectAttempts = 0;
-                this._mqttBackupStarted = false;
                 this._mqttTried = false;
-                if (this._peerFallbackTimer) {
-                    clearTimeout(this._peerFallbackTimer);
-                    this._peerFallbackTimer = null;
-                }
-                this._mqttFallback = null;
             },
 
             _getNetworkEffectiveType() {
@@ -3176,40 +2918,9 @@
 
             _startConnectionMonitor() {
                 setInterval(() => {
-                    if (this.isConnected && this.conn && this.conn.open) {
-                        var now = Date.now();
+                    if (this.isConnected && this._sigDc && this._useSig) {
                         if (this.lastHeartbeatAck) {
-                            var quality;
-                            if (this.connectionLatency < 100) quality = 'excellent';
-                            else if (this.connectionLatency < 500) quality = 'good';
-                            else if (this.connectionLatency < 2000) quality = 'fair';
-                            else quality = 'poor';
-
-                            this.connectionQualityHistory.push({ time: now, quality: quality, latency: this.connectionLatency });
-                            if (this.connectionQualityHistory.length > 120) {
-                                this.connectionQualityHistory = this.connectionQualityHistory.slice(-120);
-                            }
-
-                            if (quality === 'poor') {
-                                this.poorQualityDuration += 5;
-                                this.excellentQualityDuration = 0;
-                                if (this.poorQualityDuration >= 30) {
-                                    console.warn('[P2P] 连接质量差持续30s, 建议切换中继');
-                                    this._dispatch('p2p:networkStatus', { online: true, quality: 'poor', suggestion: 'consider_relay' });
-                                    this.poorQualityDuration = 0;
-                                }
-                            } else if (quality === 'excellent') {
-                                this.excellentQualityDuration += 5;
-                                this.poorQualityDuration = 0;
-                            } else {
-                                this.poorQualityDuration = 0;
-                                this.excellentQualityDuration = 0;
-                            }
-
-                            if (quality !== this.connectionQuality) {
-                                this.connectionQuality = quality;
-                                this._dispatch('p2p:networkStatus', { online: true, quality: quality, latency: this.connectionLatency });
-                            }
+                            this._dispatch('p2p:networkStatus', { online: true, quality: 'good', latency: this.connectionLatency });
                         }
                     }
                 }, 5000);
@@ -3227,21 +2938,13 @@
                         if (data.echoTimestamp) {
                             this.connectionLatency = Date.now() - data.echoTimestamp;
                         }
-                        if (this.connectionLatency < 500) {
-                            this.connectionQuality = 'excellent';
-                            if (this.fastHeartbeatTimer) {
-                                this._startNormalHeartbeat();
-                            }
-                        } else if (this.connectionLatency < 2000) {
-                            this.connectionQuality = 'good';
-                        } else if (this.connectionLatency < 5000) {
-                            this.connectionQuality = 'fair';
-                        } else {
-                            this.connectionQuality = 'poor';
+                        var q = this.connectionLatency < 500 ? 'excellent' : this.connectionLatency < 2000 ? 'good' : this.connectionLatency < 5000 ? 'fair' : 'poor';
+                        if (q === 'excellent' && this.fastHeartbeatTimer) {
+                            this._startNormalHeartbeat();
                         }
                         this._dispatch('p2p:networkStatus', { 
                             online: true, 
-                            quality: this.connectionQuality, 
+                            quality: q, 
                             latency: this.connectionLatency,
                             uptime: this.connectionStartTime ? Date.now() - this.connectionStartTime : 0
                         });
@@ -3549,11 +3252,8 @@
             emit(type, data) {
                 const event = { type, data, source: this.deviceId, timestamp: Date.now() };
 
-                if (this.isConnected && (this.conn || (this._useSig && this._sigDc))) {
+                if (this.isConnected && this._useSig && this._sigDc) {
                     this._sendSyncEvent(event);
-                } else {
-                    this.offlineQueue.push(event);
-                    console.log('[P2P] Queued event (offline), queue size:', this.offlineQueue.length);
                 }
 
                 localStorage.setItem('guardian_sync_' + Date.now(), JSON.stringify(event));
@@ -3568,13 +3268,6 @@
             },
 
             _sendQueuedEvents() {
-                if (this.offlineQueue.length === 0) return;
-                console.log('[P2P] Sending queued events:', this.offlineQueue.length);
-                const queue = [...this.offlineQueue];
-                this.offlineQueue = [];
-                queue.forEach(event => {
-                    this._sendSyncEvent(event);
-                });
             },
 
             _send(data) {
@@ -3582,12 +3275,11 @@
                     console.log('[P2P DEMO] _send skipped (local mode):', data.type);
                     return;
                 }
-                if (this.conn && this.conn.open) {
+                if (this._useSig && this._sigDc) {
                     try {
-                        this.conn.send(data);
+                        this._sigDc.send(data);
                     } catch(e) {
                         console.error('[P2P] Send error:', e);
-                        this.offlineQueue.push(data);
                     }
                 }
             },
@@ -3595,7 +3287,7 @@
             _startHeartbeat() {
                 this._stopHeartbeat();
                 this.heartbeatTimer = setInterval(() => {
-                    if (this.isConnected && this.conn && this.conn.open) {
+                    if (this.isConnected && this._sigDc) {
                         this._send({ type: 'heartbeat', from: this.deviceId, timestamp: Date.now() });
                     }
                 }, this.HEARTBEAT_INTERVAL);
@@ -3609,27 +3301,13 @@
             },
 
             _attemptReconnect() {
-                if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
-                    console.log('[P2P] Max reconnect attempts reached');
-                    this._dispatch('p2p:reconnectFailed', {});
-                    return;
-                }
-
-                this.reconnectAttempts++;
-                const delay = this.RECONNECT_DELAY * Math.min(this.reconnectAttempts, 5);
-                console.log('[P2P] Reconnect attempt', this.reconnectAttempts, 'in', delay, 'ms');
+                console.log('[P2P] Reconnect requested');
 
                 this.reconnectTimer = setTimeout(() => {
-                    if (this.isHost) {
-                        if (this.peer && !this.peer.destroyed) {
-                            this.peer.reconnect();
-                        }
-                    } else {
-                        if (this.authCode) {
-                            this.connectWithCode(this.authCode);
-                        }
+                    if (this.authCode) {
+                        this.connectWithCode(this.authCode);
                     }
-                }, delay);
+                }, this.RECONNECT_DELAY);
             },
 
             _persistConnection() {
@@ -3660,16 +3338,6 @@
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
                 }
-                if (this.conn && typeof this.conn.close === 'function') {
-                    this.conn.close();
-                    this.conn = null;
-                } else {
-                    this.conn = null;
-                }
-                if (this.peer) {
-                    this.peer.destroy();
-                    this.peer = null;
-                }
                 this.isConnected = false;
                 this.authCode = null;
                 this.authCodeExpiry = null;
@@ -3686,9 +3354,6 @@
                     authCodeExpiry: this.authCodeExpiry,
                     peerId: this.peerId,
                     _connecting: this._connecting,
-                    offlineQueueSize: this.offlineQueue.length,
-                    reconnectAttempts: this.reconnectAttempts,
-                    connectionQuality: this.connectionQuality,
                     connectionLatency: this.connectionLatency,
                     networkOnline: this.networkOnline,
                     missedHeartbeats: this.missedHeartbeats,
@@ -3722,7 +3387,7 @@
                         tests.results.push({ test: 'p2p_connection', status: 'not_connected' });
                     }
                     
-                    tests.results.push({ test: 'connection_quality', status: this.connectionQuality || 'unknown' });
+                    tests.results.push({ test: 'connection_quality', status: 'unknown' });
                     tests.totalTime = Date.now() - tests.startTime;
                     
                     console.log('[P2P] 📊 Network test results:', tests);
@@ -3747,7 +3412,7 @@
 
             // 发送测试数据包
             sendTestPacket() {
-                if (!this.isConnected || !this.conn) {
+                if (!this.isConnected) {
                     console.warn('[P2P] ❌ Cannot send test packet - not connected');
                     return false;
                 }
@@ -3805,722 +3470,10 @@
         };
         window.RealTimeSync = RealTimeSync;
 
-        // ========== 本地 WebSocket 信令模块 (v1.59) ==========
-        const LocalSignaling = {
-            ws: null, dc: null,
-            roomId: null, role: null,
-            _callbacks: {},
-            _connecting: false,
-            _reconnectTimer: null,
-            _iceCandidateQueue: [],
-
-            // 服务器地址配置 - 优先尝试本地
-            _servers: [
-                'ws://192.168.3.10:8080',
-                'ws://127.0.0.1:8080',
-                'ws://localhost:8080'
-            ],
-
-            connect(code, role, callbacks, signalConfig) {
-                if (this._connecting) return;
-                this._connecting = true;
-                this.roomId = code;
-                this.role = role;
-                this._callbacks = callbacks || {};
+        
                 
-                // 优先级：自动发现 > 局域网IP > 本机
-                var servers = [];
-                if (signalConfig && signalConfig.host) {
-                    var url = 'ws://' + signalConfig.host + ':' + (signalConfig.port || 8080);
-                    servers.push(url);
-                    console.log('[LocalSignaling] 使用自动发现服务器:', url);
-                }
-                servers = servers.concat(this._servers);
-                this._servers = servers;
-                
-                this._tryNextServer(0);
-            },
 
-            _tryNextServer(index) {
-                if (index >= this._servers.length) {
-                    console.log('[LocalSignaling] 所有服务器均失败');
-                    this._connecting = false;
-                    if (this._callbacks.onfail) this._callbacks.onfail();
-                    return;
-                }
-
-                var self = this;
-                var serverUrl = this._servers[index] + '/?room=' + this.roomId + '&role=' + this.role;
-
-                console.log('[LocalSignaling] 尝试服务器:', serverUrl);
-
-                try {
-                    if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
-                    
-                    this.ws = new WebSocket(serverUrl);
-                    this.ws.binaryType = 'arraybuffer';
-
-                    this.ws.onopen = function() {
-                        console.log('[LocalSignaling] ✅ 连接成功:', serverUrl);
-                    };
-
-                    this.ws.onmessage = function(event) {
-                        try {
-                            var msg = JSON.parse(event.data);
-                            self._handleMessage(msg);
-                        } catch (e) {
-                            console.error('[LocalSignaling] 消息解析失败:', e);
-                        }
-                    };
-
-                    this.ws.onerror = function() {
-                        console.warn('[LocalSignaling] 连接失败:', serverUrl);
-                        if (self.ws) { try { self.ws.close(); } catch(e) {} self.ws = null; }
-                        self._tryNextServer(index + 1);
-                    };
-
-                    this.ws.onclose = function() {
-                        console.log('[LocalSignaling] 连接关闭:', serverUrl);
-                        if (self._connecting && self.ws) {
-                            console.log('[LocalSignaling] 连接未就绪，尝试下一台');
-                        }
-                    };
-
-                    // 设置连接超时
-                    setTimeout(function() {
-                        if (self._connecting && self.ws && self.ws.readyState !== 1) {
-                            console.warn('[LocalSignaling] 连接超时:', serverUrl);
-                            try { self.ws.close(); } catch(e) {}
-                            self.ws = null;
-                            self._tryNextServer(index + 1);
-                        }
-                    }, 5000);
-
-                } catch (e) {
-                    console.error('[LocalSignaling] 创建连接异常:', e);
-                    this._tryNextServer(index + 1);
-                }
-            },
-
-            _handleMessage(msg) {
-                var self = this;
-
-                switch (msg.type) {
-                    case 'room_joined':
-                        console.log('[LocalSignaling] 加入房间:', msg.roomId, '角色:', msg.role);
-                        break;
-
-                    case 'ready':
-                        console.log('[LocalSignaling] 双方就绪，建立 WebRTC 连接');
-                        // 通过 DataChannel 建立连接
-                        self._createDataChannel();
-                        // 设置 WebSocket 中转的备用超时
-                        if (self._relayTimeout) clearTimeout(self._relayTimeout);
-                        self._relayTimeout = setTimeout(function() {
-                            if (self._pc && self._pc.iceConnectionState !== 'connected' && self._pc.iceConnectionState !== 'completed') {
-                                console.warn('[LocalSignaling] ⚠️ ICE 连接超时(20s)，切换到 WebSocket 中转');
-                                self._activateRelayMode();
-                            }
-                        }, 20000);
-                        break;
-
-                    case 'offer':
-                        console.log('[LocalSignaling] 收到 Offer (Trickle ICE)');
-                        self._handleOffer(msg);
-                        break;
-
-                    case 'answer':
-                        console.log('[LocalSignaling] 收到 Answer');
-                        self._handleAnswer(msg);
-                        break;
-
-                    case 'ice_candidate':
-                        if (msg.candidate && self._pc) {
-                            if (self._pc.remoteDescription && self._pc.remoteDescription.type) {
-                                self._pc.addIceCandidate(new RTCIceCandidate(msg.candidate))
-                                    .then(function() { console.log('[ICE] 添加候选成功'); })
-                                    .catch(function(e) { console.error('[ICE] 添加候选失败:', e); });
-                            } else {
-                                self._iceCandidateQueue.push(msg.candidate);
-                                console.log('[ICE] 候选已入队(远端描述未就绪), 队列长度:', self._iceCandidateQueue.length);
-                            }
-                        }
-                        break;
-
-                    case 'pong':
-                        break;
-
-                    case 'data':
-                        if (self.dc && self.dc.onmessage) {
-                            try { self.dc.onmessage({ data: msg.payload }); } catch(e) {}
-                        }
-                        break;
-
-                    case 'error':
-                        console.error('[LocalSignaling] 服务器错误:', msg.message);
-                        break;
-                }
-            },
-
-            _createDataChannel() {
-                var self = this;
-                this._iceCandidateQueue = [];
-                var config = {
-                    iceServers: window.RealTimeSync ? window.RealTimeSync.getIceServers() : [
-                        { urls: 'stun:stun.miwifi.com:3478' },
-                        { urls: 'stun:stun.chat.bilibili.com:3478' },
-                        { urls: 'turn:192.168.3.10:3478', username: 'guardian', credential: 'guardian_p2p_2026' },
-                        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
-                    ],
-                    iceCandidatePoolSize: 20,
-                    bundlePolicy: 'max-bundle',
-                    rtcpMuxPolicy: 'require'
-                };
-
-                console.log('[LocalSignaling] 创建 RTCPeerConnection...');
-
-                try {
-                    self._pc = new RTCPeerConnection(config);
-
-                    if (self.role === 'host') {
-                        self.dc = self._pc.createDataChannel('guardian-dc', { ordered: true });
-                        self._setupDC();
-                        self._pc.createOffer()
-                            .then(function(offer) { return self._pc.setLocalDescription(offer); })
-                            .then(function() {
-                                if (self._pc.localDescription && self._pc.localDescription.sdp) {
-                                    self.ws.send(JSON.stringify({ type: 'offer', sdp: self._pc.localDescription.sdp }));
-                                }
-                            })
-                            .catch(function(e) { console.error('[LocalSignaling] createOffer 失败:', e); });
-                    } else {
-                        // Client 等待 offer
-                    }
-
-                    // v1.70: 统一ICE候选发送（修复Host候选被覆盖丢弃）
-                    self._pc.onicecandidate = function(e) {
-                        if (e.candidate) {
-                            self.ws.send(JSON.stringify({ type: 'ice_candidate', candidate: e.candidate.toJSON() }));
-                        }
-                    };
-
-                    self._pc.ondatachannel = function(e) {
-                        console.log('[LocalSignaling] 收到 DataChannel');
-                        self.dc = e.channel;
-                        self._setupDC();
-                    };
-
-                    self._pc.oniceconnectionstatechange = function() {
-                        console.log('[LocalSignaling] ICE 状态:', self._pc.iceConnectionState);
-                        if (self._pc.iceConnectionState === 'connected' || self._pc.iceConnectionState === 'completed') {
-                            console.log('[LocalSignaling] ✅ P2P 连接建立!');
-                            if (self._relayTimeout) { clearTimeout(self._relayTimeout); self._relayTimeout = null; }
-                            if (self._callbacks.onready) {
-                                self._callbacks.onready();
-                            }
-                        } else if (self._pc.iceConnectionState === 'disconnected' || self._pc.iceConnectionState === 'failed') {
-                            console.warn('[LocalSignaling] ICE 连接断开');
-                        }
-                    };
-
-                    self._pc.onconnectionstatechange = function() {
-                        console.log('[LocalSignaling] 连接状态:', self._pc.connectionState);
-                    };
-
-                } catch (e) {
-                    console.error('[LocalSignaling] RTCPeerConnection 创建失败:', e);
-                    if (self._callbacks.onfail) self._callbacks.onfail();
-                }
-            },
-
-            _setupDC() {
-                var self = this;
-                if (!self.dc) return;
-                self.dc.onopen = function() {
-                    console.log('[LocalSignaling] ✅ DataChannel 已打开');
-                    if (self._callbacks.onready) self._callbacks.onready();
-                };
-                self.dc.onclose = function() {
-                    console.log('[LocalSignaling] DataChannel 已关闭');
-                };
-                self.dc.onerror = function(err) {
-                    console.error('[LocalSignaling] DataChannel 错误:', err);
-                };
-                self.dc.onmessage = function(e) {
-                    if (window.RealTimeSync) {
-                        try { window.RealTimeSync._handleIncomingData(JSON.parse(e.data)); } catch(ex) {}
-                    }
-                };
-            },
-
-            _activateRelayMode() {
-                var self = this;
-                if (self._relayActive) return;
-                self._relayActive = true;
-                console.log('[LocalSignaling] 激活 WebSocket 中转模式');
-
-                if (self._relayTimeout) { clearTimeout(self._relayTimeout); self._relayTimeout = null; }
-                if (self._iceTimeout) { clearTimeout(self._iceTimeout); self._iceTimeout = null; }
-                if (self._pc) {
-                    try { self._pc.close(); } catch(e) {}
-                    self._pc = null;
-                }
-
-                if (!self.dc || self.dc.readyState !== 'open') {
-                    self.dc = {
-                        readyState: 'open',
-                        send: function(data) {
-                            if (self.ws && self.ws.readyState === WebSocket.OPEN) {
-                                var msg = typeof data === 'string' ? data : JSON.stringify(data);
-                                self.ws.send(JSON.stringify({ type: 'data', payload: msg }));
-                                return true;
-                            }
-                            return false;
-                        },
-                        close: function() {
-                            self._relayActive = false;
-                            if (self.ws) { try { self.ws.close(); } catch(e) {} self.ws = null; }
-                        }
-                    };
-                    self._setupDC();
-                }
-
-                if (self._callbacks.onready) self._callbacks.onready();
-            },
-
-            _handleOffer(msg) {
-                var self = this;
-                if (!self._pc) {
-                    console.error('[LocalSignaling] 未创建 RTCPeerConnection');
-                    return;
-                }
-                self._pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }))
-                    .then(function() {
-                        self._flushIceQueue();
-                        return self._pc.createAnswer();
-                    })
-                    .then(function(answer) { return self._pc.setLocalDescription(answer); })
-                    .then(function() {
-                        if (self._pc.localDescription && self._pc.localDescription.sdp) {
-                            self.ws.send(JSON.stringify({ type: 'answer', sdp: self._pc.localDescription.sdp }));
-                        }
-                    })
-                    .catch(function(e) { console.error('[LocalSignaling] handleOffer 失败:', e); });
-            },
-
-            _handleAnswer(msg) {
-                var self = this;
-                if (!self._pc) return;
-                self._pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }))
-                    .then(function() { self._flushIceQueue(); })
-                    .catch(function(e) { console.error('[LocalSignaling] handleAnswer 失败:', e); });
-            },
-
-            _flushIceQueue() {
-                if (this._iceCandidateQueue.length === 0) return;
-                var queue = this._iceCandidateQueue;
-                this._iceCandidateQueue = [];
-                console.log('[ICE] 刷新候选队列, 数量:', queue.length);
-                queue.forEach(function(candidate) {
-                    if (this._pc) {
-                        this._pc.addIceCandidate(new RTCIceCandidate(candidate))
-                            .then(function() { console.log('[ICE] 队列候选添加成功'); })
-                            .catch(function(e) { console.log('[ICE] 队列候选添加失败(可能已过期):', e.message); });
-                    }
-                }, this);
-            },
-
-            send(data) {
-                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                    var msg = JSON.stringify(data);
-                    this.ws.send(msg);
-                    return true;
-                }
-                return false;
-            },
-
-            close() {
-                if (this._pc) { try { this._pc.close(); } catch(e) {} this._pc = null; }
-                this.dc = null;
-                if (this.ws) { try { this.ws.close(); } catch(e) {} this.ws = null; }
-                this._connecting = false;
-                if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
-                console.log('[LocalSignaling] 已关闭');
-            }
-        };
-
-        // ========== P2P 自动化测试套件 ==========
-        const P2PAutoTest = {
-            running: false,
-            testResults: [],
-            testStartTime: null,
-            currentTestIndex: 0,
-            testTimeout: null,
-            testDuration: 300000, // 5分钟
-            packetInterval: 2000, // 每2秒发一个包
-            packetCount: 0,
-            packetSuccess: 0,
-            latencySamples: [],
-
-            // 测试用例
-            testCases: [
-                {
-                    name: '网络连接基本测试',
-                    description: '检查浏览器是否在线、网络类型和基本连接能力',
-                    function: 'testBasicConnectivity'
-                },
-                {
-                    name: 'STUN/TURN 服务器连通性测试',
-                    description: '测试所有 ICE 服务器的可用性',
-                    function: 'testIceServers'
-                },
-                {
-                    name: '实时数据传输测试',
-                    description: '发送测试数据包并验证双向传输',
-                    function: 'testDataTransmission'
-                },
-                {
-                    name: '连接稳定性测试',
-                    description: '长时间测试连接稳定性和心跳机制',
-                    function: 'testConnectionStability'
-                },
-                {
-                    name: '网络切换模拟测试',
-                    description: '模拟网络波动场景下的重连机制',
-                    function: 'testNetworkResilience'
-                }
-            ],
-
-            // 开始自动化测试
-            async startAutomatedTest(duration = 300000) {
-                if (this.running) {
-                    console.warn('[测试] 测试已在运行中');
-                    return null;
-                }
-
-                console.log('[测试] 🚀 开始自动化测试套件');
-                this.running = true;
-                this.testStartTime = Date.now();
-                this.testDuration = duration;
-                this.testResults = [];
-                this.currentTestIndex = 0;
-
-                showToast('🚀 自动化测试已启动');
-
-                // 运行所有测试用例
-                for (let i = 0; i < this.testCases.length; i++) {
-                    this.currentTestIndex = i;
-                    const testCase = this.testCases[i];
-                    console.log(`[测试] 🔷 运行测试 ${i + 1}/${this.testCases.length}: ${testCase.name}`);
-
-                    try {
-                        const result = await this[testCase.function]();
-                        this.testResults.push({
-                            ...testCase,
-                            status: result.success ? 'passed' : 'failed',
-                            details: result.details,
-                            duration: result.duration,
-                            timestamp: Date.now()
-                        });
-                        console.log(`[测试] ✅ ${testCase.name}: ${result.success ? '通过' : '失败'}`);
-                    } catch (error) {
-                        this.testResults.push({
-                            ...testCase,
-                            status: 'error',
-                            error: error.message,
-                            timestamp: Date.now()
-                        });
-                        console.error(`[测试] ❌ ${testCase.name} 出错:`, error);
-                    }
-                }
-
-                this.running = false;
-                const finalReport = this.generateTestReport();
-                console.log('[测试] 📋 测试报告生成完成:', finalReport);
-                return finalReport;
-            },
-
-            // 1. 网络连接基本测试
-            async testBasicConnectivity() {
-                const startTime = Date.now();
-                const details = {};
-
-                console.log('[测试] 1️⃣ 网络连接基本测试');
-
-                // 测试在线状态
-                details.online = navigator.onLine;
-                console.log(`[测试] 在线状态: ${details.online ? '✅' : '❌'}`);
-
-                // 测试网络类型
-                details.networkType = RealTimeSync.getNetworkType();
-                console.log('[测试] 网络类型:', details.networkType);
-
-                // 测试浏览器兼容性
-                details.rtcSupport = typeof RTCPeerConnection !== 'undefined';
-                details.websocketSupport = typeof WebSocket !== 'undefined';
-                console.log(`[测试] WebRTC 支持: ${details.rtcSupport ? '✅' : '❌'}`);
-                console.log(`[测试] WebSocket 支持: ${details.websocketSupport ? '✅' : '❌'}`);
-
-                const success = details.online && details.rtcSupport;
-                return {
-                    success,
-                    details,
-                    duration: Date.now() - startTime
-                };
-            },
-
-            // 2. ICE 服务器连通性测试
-            async testIceServers() {
-                const startTime = Date.now();
-                const details = { tested: [], results: [] };
-
-                console.log('[测试] 2️⃣ STUN/TURN 服务器连通性测试');
-
-                const iceServers = RealTimeSync.getIceServers();
-                
-                for (let i = 0; i < Math.min(iceServers.length, 3); i++) {
-                    const server = iceServers[i];
-                    const serverInfo = {
-                        type: server.urls.startsWith('stun') ? 'STUN' : 'TURN',
-                        url: server.urls,
-                        testStart: Date.now()
-                    };
-
-                    details.tested.push(serverInfo);
-
-                    try {
-                        // 模拟服务器探测（真实测试需要建立连接）
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        serverInfo.status = 'tested';
-                        details.results.push({ server: serverInfo, success: true });
-                        console.log(`[测试] ✅ ${serverInfo.type} 服务器: ${serverInfo.url}`);
-                    } catch (error) {
-                        serverInfo.status = 'failed';
-                        serverInfo.error = error.message;
-                        details.results.push({ server: serverInfo, success: false });
-                        console.warn(`[测试] ❌ ${serverInfo.type} 服务器失败:`, error);
-                    }
-                }
-
-                const success = details.results.filter(r => r.success).length > 0;
-                return {
-                    success,
-                    details,
-                    duration: Date.now() - startTime
-                };
-            },
-
-            // 3. 数据传输测试
-            async testDataTransmission() {
-                const startTime = Date.now();
-                const details = {
-                    packetsSent: 0,
-                    packetsReceived: 0,
-                    packetLoss: 0,
-                    averageLatency: 0,
-                    minLatency: Infinity,
-                    maxLatency: 0
-                };
-
-                console.log('[测试] 3️⃣ 实时数据传输测试');
-
-                if (!RealTimeSync.isConnected) {
-                    console.log('[测试] ⚠️  未建立P2P连接，跳过数据传输测试');
-                    return {
-                        success: true,
-                        details: { ...details, skipped: true, reason: '未建立连接' },
-                        duration: Date.now() - startTime
-                    };
-                }
-
-                // 发送测试数据包
-                const testDataCount = 5;
-                for (let i = 0; i < testDataCount; i++) {
-                    const packet = {
-                        type: 'test_packet',
-                        testId: Date.now() + '_' + i,
-                        seq: i,
-                        timestamp: Date.now(),
-                        data: Math.random().toString(36).substring(7)
-                    };
-
-                    console.log(`[测试] 📤 发送测试数据包 #${i + 1}`);
-                    
-                    if (RealTimeSync.sendTestPacket()) {
-                        details.packetsSent++;
-                    }
-
-                    await new Promise(resolve => setTimeout(resolve, this.packetInterval));
-                }
-
-                // 收集连接状态信息
-                const status = RealTimeSync.getStatus();
-                details.latency = status.connectionLatency;
-                details.connectionQuality = status.connectionQuality;
-                
-                console.log('[测试] 📊 数据传输测试结果:', details);
-
-                return {
-                    success: true,
-                    details,
-                    duration: Date.now() - startTime
-                };
-            },
-
-            // 4. 连接稳定性测试
-            async testConnectionStability() {
-                const startTime = Date.now();
-                const details = {
-                    testDuration: 30000, // 30秒
-                    statusChecks: [],
-                    qualityChecks: []
-                };
-
-                console.log('[测试] 4️⃣ 连接稳定性测试（30秒）');
-                showToast('⏳ 连接稳定性测试进行中...');
-
-                if (!RealTimeSync.isConnected) {
-                    return {
-                        success: true,
-                        details: { ...details, skipped: true, reason: '未建立连接' },
-                        duration: Date.now() - startTime
-                    };
-                }
-
-                // 每3秒检查一次连接状态
-                const checkInterval = setInterval(() => {
-                    const status = RealTimeSync.getStatus();
-                    details.statusChecks.push({
-                        timestamp: Date.now(),
-                        connected: status.isConnected,
-                        quality: status.connectionQuality,
-                        latency: status.connectionLatency,
-                        missedHeartbeats: status.missedHeartbeats
-                    });
-                    console.log('[测试] 📊 状态检查:', details.statusChecks[details.statusChecks.length - 1]);
-                }, 3000);
-
-                // 等待30秒
-                await new Promise(resolve => setTimeout(resolve, details.testDuration));
-                clearInterval(checkInterval);
-
-                // 分析结果
-                const allConnected = details.statusChecks.every(check => check.connected);
-                const qualityStable = details.statusChecks.every(check => 
-                    check.quality === 'excellent' || check.quality === 'good'
-                );
-
-                console.log('[测试] 稳定性分析 - 全程在线:', allConnected);
-                console.log('[测试] 稳定性分析 - 质量稳定:', qualityStable);
-
-                return {
-                    success: allConnected && qualityStable,
-                    details,
-                    duration: Date.now() - startTime
-                };
-            },
-
-            // 5. 网络恢复力测试
-            async testNetworkResilience() {
-                const startTime = Date.now();
-                const details = {
-                    reconnectionAttempted: false,
-                    recoveryTime: null,
-                    recoverySuccess: false
-                };
-
-                console.log('[测试] 5️⃣ 网络切换模拟测试');
-
-                // 这个测试主要检查重连机制是否可用
-                details.reconnectionAvailable = typeof RealTimeSync._attemptReconnect === 'function';
-                details.reconnectAttempts = RealTimeSync.reconnectAttempts;
-
-                console.log('[测试] 🔄 重连机制状态:', details);
-
-                return {
-                    success: details.reconnectionAvailable,
-                    details,
-                    duration: Date.now() - startTime
-                };
-            },
-
-            // 生成测试报告
-            generateTestReport() {
-                const endTime = Date.now();
-                const totalDuration = endTime - this.testStartTime;
-                const passedTests = this.testResults.filter(t => t.status === 'passed').length;
-                const failedTests = this.testResults.filter(t => t.status === 'failed').length;
-                const errorTests = this.testResults.filter(t => t.status === 'error').length;
-
-                const report = {
-                    testId: 'p2p_test_' + Date.now(),
-                    timestamp: endTime,
-                    date: new Date().toISOString(),
-                    deviceId: RealTimeSync.deviceId,
-                    networkType: RealTimeSync.getNetworkType(),
-                    totalTests: this.testResults.length,
-                    passed: passedTests,
-                    failed: failedTests,
-                    errors: errorTests,
-                    passRate: ((passedTests / this.testResults.length) * 100).toFixed(1) + '%',
-                    totalDuration: totalDuration + 'ms',
-                    summary: this.testResults.map(t => ({
-                        name: t.name,
-                        status: t.status,
-                        duration: t.duration ? t.duration + 'ms' : 'N/A',
-                        details: t.details
-                    })),
-                    connectionStatus: RealTimeSync.getStatus(),
-                    systemInfo: {
-                        userAgent: navigator.userAgent,
-                        language: navigator.language,
-                        platform: navigator.platform,
-                        screenSize: `${window.screen.width}x${window.screen.height}`
-                    }
-                };
-
-                console.log('[测试] 📋 ============= 测试报告 =============');
-                console.log('[测试] ✅ 通过:', passedTests, '/', this.testResults.length);
-                console.log('[测试] ❌ 失败:', failedTests);
-                console.log('[测试] ⚠️  错误:', errorTests);
-                console.log('[测试] 📊 通过率:', report.passRate);
-                console.log('[测试] ⏱️  总耗时:', (totalDuration / 1000).toFixed(1) + 's');
-                console.log('[测试] ====================================');
-
-                return report;
-            },
-
-            // 下载测试报告
-            downloadReport() {
-                const report = this.generateTestReport();
-                const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `p2p_test_report_${Date.now()}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-                console.log('[测试] 📥 测试报告已下载');
-            },
-
-            // 停止测试
-            stopTest() {
-                this.running = false;
-                if (this.testTimeout) {
-                    clearTimeout(this.testTimeout);
-                    this.testTimeout = null;
-                }
-                console.log('[测试] ⏹️ 测试已停止');
-                showToast('测试已停止');
-            },
-
-            // 快速测试（一键启动）
-            async quickTest() {
-                console.log('[测试] ⚡ 快速测试启动');
-                showToast('⚡ 快速测试开始');
-                return await this.startAutomatedTest(60000); // 1分钟快速测试
-            }
-        };
+         
 
         // ========== MQTT信令中继（通过免费公共MQTT Broker自动交换SDP，零配置）==========
         // EMQX 免费公共 MQTT Broker，国内可访问，无需注册
@@ -4851,7 +3804,6 @@
         // 集成到RealTimeSync
         RealTimeSync._sigDc = null;
         RealTimeSync._useSig = false;
-        RealTimeSync._mqttBackupStarted = false;
         RealTimeSync._connectSig = function(dc) {
             if (this.isConnected) return;
             this._sigDc = dc; this._useSig = true;
@@ -4889,8 +3841,6 @@
         RealTimeSync.disconnect = function() {
             this._stopHeartbeat();
             if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-            if (this.conn) { this.conn.close(); this.conn = null; }
-            if (this.peer) { this.peer.destroy(); this.peer = null; }
             if (this._useSig && this._sigDc) { try { MqttSignaling.close(); } catch(e) {} this._sigDc = null; this._useSig = false; }
             this.isConnected = false; this.authCode = null; this.authCodeExpiry = null;
             localStorage.removeItem('guardian_p2p_connection');
@@ -11424,543 +10374,11 @@ function doChangeRole(newRole) {
     </div>
 
     <script>
-    /* ============================================================
-     * Guardian v2.0 功能扩展层（A1~A8 + B1~B7）
-     * 完全独立模块，不破坏 v1.108 已有 RealTimeSync / MQTT / WebRTC
-     * ============================================================ */
-    (function(){
-        'use strict';
-        var V2 = window.V2 = {
-            VERSION: '2.0.0',
-            QR_PREFIX: 'guardian://pair?code=',
-            PRIMARY_KEY: 'v2_primaryGuardianId',
-            DARK_KEY: 'v2_dark',
-            ELDER_KEY: 'v2_elder',
-            OFFLINE_QUEUE_KEY: 'v2_offlineQueue',
-            GEOFENCE_KEY: 'v2_geofences',
-            PERMANENT_KEY: 'v2_permanentPair',
-            LAST_CODE_KEY: 'v2_lastPairCode',
-            _scanStream: null,
-            _scanRaf: null,
-            _qrExpiryTimer: null,
-            _fallTimer: null,
-            _sosHoldTimer: null
-        };
-
-        /* ===== 通用 ===== */
-        V2.toast = function(msg, ms){
-            var t = document.getElementById('v2Toast');
-            if (!t) return;
-            t.textContent = msg;
-            t.classList.add('show');
-            clearTimeout(t._h);
-            t._h = setTimeout(function(){ t.classList.remove('show'); }, ms || 4000);
-        };
-        V2.burst = function(icon){
-            var o = document.getElementById('v2Burst');
-            var i = document.getElementById('v2BurstIcon');
-            if (!o || !i) return;
-            i.textContent = icon || '✅';
-            o.classList.add('show');
-            if (navigator.vibrate) navigator.vibrate([60,40,120]);
-            setTimeout(function(){ o.classList.remove('show'); }, 1100);
-        };
-        V2.speak = function(text){
-            try {
-                if (!('speechSynthesis' in window)) return;
-                var u = new SpeechSynthesisUtterance(text);
-                u.lang = 'zh-CN'; u.rate = 0.95; u.volume = 1;
-                speechSynthesis.cancel();
-                speechSynthesis.speak(u);
-            } catch(e) {}
-        };
-
-        /* ===== B1/B4 主题切换 ===== */
-        V2.toggleDark = function(on){
-            on = (typeof on === 'boolean') ? on : !document.body.classList.contains('v2-dark');
-            document.body.classList.toggle('v2-dark', on);
-            try { localStorage.setItem(V2.DARK_KEY, on ? '1' : '0'); } catch(e) {}
-        };
-        V2.toggleElder = function(on){
-            on = (typeof on === 'boolean') ? on : !document.body.classList.contains('v2-elder');
-            document.body.classList.toggle('v2-elder', on);
-            try { localStorage.setItem(V2.ELDER_KEY, on ? '1' : '0'); } catch(e) {}
-        };
-
-        /* ============================================================
-         * A1 配对扫码 + 二维码生成（保留 6 位码输入）
-         * ============================================================ */
-        V2.openQrForCode = function(code){
-            var modal = document.getElementById('v2QrModal');
-            var box = document.getElementById('v2QrBox');
-            var codeEl = document.getElementById('v2QrCode');
-            var expiry = document.getElementById('v2QrExpiry');
-            if (!modal || !box) return;
-            box.innerHTML = '';
-            codeEl.textContent = (code || '').replace(/(\d{3})(\d{3})/, '$1 $2');
-            var payload = V2.QR_PREFIX + (code || '');
-            if (window.QRCode && QRCode.toCanvas) {
-                var c = document.createElement('canvas');
-                QRCode.toCanvas(c, payload, { width: 220, margin: 1, color: { dark: '#0a0e17', light: '#ffffff' } });
-                box.appendChild(c);
-            } else {
-                var img = document.createElement('img');
-                img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(payload);
-                box.appendChild(img);
-            }
-            modal.style.display = 'flex';
-            // 倒计时
-            if (V2._qrExpiryTimer) clearInterval(V2._qrExpiryTimer);
-            var remain = 300;
-            V2._qrExpiryTimer = setInterval(function(){
-                remain--;
-                if (remain <= 0) { clearInterval(V2._qrExpiryTimer); expiry.textContent = '⚠️ 已过期，请重新生成'; return; }
-                var m = Math.floor(remain/60), s = remain%60;
-                expiry.textContent = m + ':' + (s<10?'0':'') + s + ' 后过期';
-            }, 1000);
-        };
-        V2.closeQr = function(){
-            document.getElementById('v2QrModal').style.display = 'none';
-            if (V2._qrExpiryTimer) { clearInterval(V2._qrExpiryTimer); V2._qrExpiryTimer = null; }
-        };
-        V2.startPairAsHost = function(){
-            V2.closeGuardianList();
-            if (!window.RealTimeSync || !RealTimeSync.generateAuthCode) { V2.toast('❌ 配对模块未就绪'); return; }
-            V2.toast('🔄 正在生成配对码...');
-            var r = RealTimeSync.generateAuthCode();
-            var initial = r && r.code ? r.code : '------';
-            V2.openQrForCode(initial);
-            // 监听 codeReady 更新真实码（v1.108 异步 fetch /pair）
-            if (RealTimeSync.on) {
-                var onReady = function(d){ if (d && d.code) V2.openQrForCode(d.code); };
-                RealTimeSync.on('p2p:codeReady', onReady);
-            }
-        };
-
-        V2.openScan = function(){
-            var modal = document.getElementById('v2ScanModal');
-            var video = document.getElementById('v2ScanVideo');
-            if (!modal || !video) return;
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                V2.toast('❌ 当前环境不支持相机，请改用6位码输入', 5000);
-                return;
-            }
-            modal.style.display = 'flex';
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-                .then(function(stream){
-                    V2._scanStream = stream;
-                    video.srcObject = stream;
-                    video.play();
-                    V2._scanLoop();
-                })
-                .catch(function(e){
-                    console.error('[V2 Scan] camera error:', e);
-                    V2.toast('❌ 无法访问相机：' + (e.message || e.name) + '，请用6位码', 5500);
-                    V2.closeScan();
-                });
-        };
-        V2.closeScan = function(){
-            var modal = document.getElementById('v2ScanModal');
-            if (modal) modal.style.display = 'none';
-            if (V2._scanStream) { try { V2._scanStream.getTracks().forEach(function(t){t.stop();}); } catch(e){} V2._scanStream = null; }
-            if (V2._scanRaf) { cancelAnimationFrame(V2._scanRaf); V2._scanRaf = null; }
-        };
-        V2._scanLoop = function(){
-            var video = document.getElementById('v2ScanVideo');
-            if (!video || !video.videoWidth) {
-                V2._scanRaf = requestAnimationFrame(V2._scanLoop); return;
-            }
-            if (!window.jsQR) {
-                V2.toast('⚠️ 扫码引擎未加载，请改用6位码', 5000);
-                V2.closeScan(); return;
-            }
-            var canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-            var ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-            var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-            if (code && code.data) {
-                V2._handleScanResult(code.data);
-                return;
-            }
-            V2._scanRaf = requestAnimationFrame(V2._scanLoop);
-        };
-        V2._handleScanResult = function(text){
-            V2.closeScan();
-            var m = String(text || '').match(/(?:guardian:\/\/pair\?code=)?(\d{6})/);
-            if (!m) { V2.toast('❌ 不是有效的守护者配对码'); return; }
-            var code = m[1];
-            V2.burst('🔗');
-            V2.toast('🔗 已扫描到配对码 ' + code + '，正在连接...');
-            V2.speak('已扫描到配对码');
-            if (window.RealTimeSync && RealTimeSync.connectWithCode) {
-                RealTimeSync.connectWithCode(code);
-                try { localStorage.setItem(V2.LAST_CODE_KEY, code); } catch(e) {}
-            }
-        };
-
-        /* ============================================================
-         * A2 离线消息缓存 + 推送补偿
-         * ============================================================ */
-        V2._loadQueue = function(){
-            try { return JSON.parse(localStorage.getItem(V2.OFFLINE_QUEUE_KEY) || '[]'); } catch(e) { return []; }
-        };
-        V2._saveQueue = function(q){
-            try { localStorage.setItem(V2.OFFLINE_QUEUE_KEY, JSON.stringify(q.slice(-200))); } catch(e) {}
-            V2._updateQueueBadge();
-        };
-        V2._updateQueueBadge = function(){
-            var b = document.getElementById('v2QueueBadge');
-            if (!b) return;
-            var q = V2._loadQueue();
-            if (q.length > 0) { b.style.display = 'inline-block'; b.textContent = q.length; }
-            else b.style.display = 'none';
-        };
-        V2.queueMessage = function(event, payload){
-            var q = V2._loadQueue();
-            q.push({ event: event, payload: payload, ts: Date.now() });
-            V2._saveQueue(q);
-        };
-        V2.flushQueue = function(){
-            if (!window.RealTimeSync || !RealTimeSync.isConnected) return;
-            var q = V2._loadQueue();
-            if (!q.length) return;
-            console.log('[V2 Queue] flush', q.length, 'messages');
-            V2.toast('🔄 补发 ' + q.length + ' 条离线消息');
-            var sent = 0;
-            q.forEach(function(m){
-                try { RealTimeSync.emit(m.event, m.payload); sent++; } catch(e) {}
-            });
-            V2._saveQueue([]);
-            return sent;
-        };
-        // 安全包装 emit：未连接自动入队
-        V2.safeSend = function(event, payload){
-            if (window.RealTimeSync && RealTimeSync.isConnected) {
-                try { RealTimeSync.emit(event, payload); return true; } catch(e) {}
-            }
-            V2.queueMessage(event, payload);
-            V2.toast('📭 已加入离线队列，连接后自动补发');
-            return false;
-        };
-
-        /* ============================================================
-         * A3 多守护人管理（1 老人 ↔ N 子女）
-         * ============================================================ */
-        V2.getGuardians = function(){
-            try { return JSON.parse(localStorage.getItem('guardians')) || []; } catch(e) { return []; }
-        };
-        V2.setPrimaryGuardian = function(id){
-            try { localStorage.setItem(V2.PRIMARY_KEY, id); } catch(e) {}
-            V2.refreshElderHero();
-        };
-        V2.openGuardianList = function(){
-            var modal = document.getElementById('v2GuardianListModal');
-            var list = document.getElementById('v2GuardianList');
-            if (!modal || !list) return;
-            var arr = V2.getGuardians();
-            var primary = '';
-            try { primary = localStorage.getItem(V2.PRIMARY_KEY) || ''; } catch(e) {}
-            if (!arr.length) {
-                list.innerHTML = '<div style="text-align:center;padding:50px 0;color:#94a3b8;">还没有守护人<br><span style="font-size:13px;">点击下方"添加"或让对方扫码连接</span></div>';
-            } else {
-                list.innerHTML = arr.map(function(g){
-                    var isPrimary = g.id === primary;
-                    return '<div class="v2-guardian-item">'
-                      + '<div class="gi-avatar">' + (g.avatar || '👤') + '</div>'
-                      + '<div class="gi-info">'
-                        + '<div class="gi-name">' + (g.name || '守护人') + (isPrimary ? ' <span style="color:#10b981;font-size:12px;">★默认</span>' : '') + '</div>'
-                        + '<div class="gi-meta">' + (g.relationship || '远程看护') + (g.phone ? ' · ' + g.phone : '') + '</div>'
-                      + '</div>'
-                      + '<div class="gi-actions">'
-                        + (isPrimary ? '' : '<button onclick="V2.setPrimaryGuardian(\'' + g.id + '\');V2.openGuardianList();">设为默认</button>')
-                        + '<button class="danger" onclick="V2.removeGuardian(\'' + g.id + '\')">删除</button>'
-                      + '</div>'
-                    + '</div>';
-                }).join('');
-            }
-            modal.style.display = 'flex';
-        };
-        V2.closeGuardianList = function(){
-            var modal = document.getElementById('v2GuardianListModal');
-            if (modal) modal.style.display = 'none';
-        };
-        V2.removeGuardian = function(id){
-            if (!confirm('确定移除该守护人？')) return;
-            var arr = V2.getGuardians().filter(function(g){ return g.id !== id; });
-            try { localStorage.setItem('guardians', JSON.stringify(arr)); } catch(e) {}
-            try { if (localStorage.getItem(V2.PRIMARY_KEY) === id) localStorage.removeItem(V2.PRIMARY_KEY); } catch(e) {}
-            V2.openGuardianList();
-            V2.refreshElderHero();
-            V2.toast('🗑️ 已删除');
-        };
-
-        /* ============================================================
-         * A4 位置共享 + 电子围栏
-         * ============================================================ */
-        V2.getLocation = function(timeout){
-            return new Promise(function(resolve, reject){
-                if (!navigator.geolocation) return reject(new Error('geolocation not supported'));
-                navigator.geolocation.getCurrentPosition(function(p){
-                    resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, ts: Date.now() });
-                }, reject, { enableHighAccuracy: true, timeout: timeout || 8000, maximumAge: 30000 });
-            });
-        };
-        V2._locWatchId = null;
-        V2.startLocationShare = function(intervalMs){
-            if (V2._locWatchId !== null) return;
-            if (!navigator.geolocation) { V2.toast('❌ 不支持定位'); return; }
-            V2._locWatchId = navigator.geolocation.watchPosition(function(p){
-                var loc = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, ts: Date.now() };
-                V2.safeSend('location:update', loc);
-                V2._checkGeofence(loc);
-            }, function(e){ console.warn('[V2 Loc]', e); }, { enableHighAccuracy: true, maximumAge: intervalMs || 30000 });
-        };
-        V2.stopLocationShare = function(){
-            if (V2._locWatchId !== null && navigator.geolocation) {
-                navigator.geolocation.clearWatch(V2._locWatchId);
-                V2._locWatchId = null;
-            }
-        };
-        V2.addGeofence = function(name, lat, lng, radiusM){
-            var arr = V2._loadGeofences();
-            arr.push({ id: 'gf_' + Date.now(), name: name, lat: lat, lng: lng, r: radiusM || 200, inside: true });
-            try { localStorage.setItem(V2.GEOFENCE_KEY, JSON.stringify(arr)); } catch(e) {}
-            V2.toast('📍 围栏已添加: ' + name);
-        };
-        V2._loadGeofences = function(){
-            try { return JSON.parse(localStorage.getItem(V2.GEOFENCE_KEY) || '[]'); } catch(e) { return []; }
-        };
-        V2._haversine = function(a, b){
-            var R = 6371000, dLat = (b.lat-a.lat)*Math.PI/180, dLng = (b.lng-a.lng)*Math.PI/180;
-            var h = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-            return 2 * R * Math.asin(Math.sqrt(h));
-        };
-        V2._checkGeofence = function(loc){
-            var arr = V2._loadGeofences();
-            var changed = false;
-            arr.forEach(function(g){
-                var d = V2._haversine(loc, g);
-                var nowIn = d <= g.r;
-                if (nowIn !== g.inside) {
-                    g.inside = nowIn; changed = true;
-                    var msg = nowIn ? ('✅ 已进入: ' + g.name) : ('⚠️ 已离开: ' + g.name);
-                    V2.toast(msg, 6000);
-                    V2.safeSend('geofence:event', { name: g.name, inside: nowIn, loc: loc });
-                }
-            });
-            if (changed) { try { localStorage.setItem(V2.GEOFENCE_KEY, JSON.stringify(arr)); } catch(e) {} }
-        };
-
-        /* ============================================================
-         * A5 跌倒检测（加速度计）
-         * ============================================================ */
-        V2._fallBuffer = [];
-        V2.startFallDetection = function(){
-            if (V2._fallHandler) return;
-            if (!window.DeviceMotionEvent) { V2.toast('⚠️ 当前设备不支持运动传感器'); return; }
-            var ensure = (typeof DeviceMotionEvent.requestPermission === 'function')
-                ? DeviceMotionEvent.requestPermission()
-                : Promise.resolve('granted');
-            ensure.then(function(state){
-                if (state !== 'granted') { V2.toast('❌ 未授予运动传感器权限'); return; }
-                V2._fallHandler = function(e){
-                    var a = e.accelerationIncludingGravity || {};
-                    var g = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
-                    V2._fallBuffer.push({ g: g, t: Date.now() });
-                    if (V2._fallBuffer.length > 30) V2._fallBuffer.shift();
-                    // 简易阈值：自由落体 < 4 紧接冲击 > 25
-                    var freeFall = V2._fallBuffer.some(function(s){ return s.g < 4; });
-                    var impact = g > 25;
-                    if (freeFall && impact) {
-                        V2._fallBuffer = [];
-                        V2._onFallSuspect();
-                    }
-                };
-                window.addEventListener('devicemotion', V2._fallHandler);
-                V2.toast('🛡️ 跌倒检测已开启');
-            }).catch(function(){ V2.toast('❌ 运动传感器授权失败'); });
-        };
-        V2.stopFallDetection = function(){
-            if (V2._fallHandler) { window.removeEventListener('devicemotion', V2._fallHandler); V2._fallHandler = null; }
-        };
-        V2._onFallSuspect = function(){
-            V2.burst('⚠️');
-            V2.speak('检测到跌倒，10 秒后将自动发送求救');
-            var c = 10;
-            var ovId = 'v2FallConfirm';
-            var ov = document.getElementById(ovId);
-            if (!ov) {
-                ov = document.createElement('div');
-                ov.id = ovId;
-                ov.style.cssText = 'position:fixed;inset:0;z-index:9996;background:rgba(220,38,38,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700;';
-                ov.innerHTML = '<div style="font-size:80px;">⚠️</div><div style="margin:18px 0;">检测到疑似跌倒</div><div id="v2FallCountdown" style="font-size:64px;">10</div><button id="v2FallCancelBtn" style="margin-top:24px;padding:18px 48px;border:0;border-radius:14px;background:#fff;color:#dc2626;font-size:20px;font-weight:700;cursor:pointer;">我没事 取消</button>';
-                document.body.appendChild(ov);
-            }
-            ov.style.display = 'flex';
-            document.getElementById('v2FallCancelBtn').onclick = function(){
-                if (V2._fallTimer) { clearInterval(V2._fallTimer); V2._fallTimer = null; }
-                ov.style.display = 'none';
-                V2.toast('✅ 已取消报警');
-            };
-            V2._fallTimer = setInterval(function(){
-                c--;
-                document.getElementById('v2FallCountdown').textContent = c;
-                if (c <= 0) {
-                    clearInterval(V2._fallTimer); V2._fallTimer = null;
-                    ov.style.display = 'none';
-                    V2.triggerSOS('fall');
-                }
-            }, 1000);
-        };
-
-        /* ============================================================
-         * A6 SOS 一键拨号 + 短信定位
-         * ============================================================ */
-        V2.callPrimaryGuardian = function(){
-            var primary = '';
-            try { primary = localStorage.getItem(V2.PRIMARY_KEY) || ''; } catch(e) {}
-            var arr = V2.getGuardians();
-            var g = arr.find(function(x){ return x.id === primary; }) || arr[0];
-            if (!g || !g.phone) {
-                V2.toast('⚠️ 默认守护人未设置手机号', 5000);
-                V2.openGuardianList();
-                return;
-            }
-            window.location.href = 'tel:' + g.phone;
-        };
-        V2.triggerSOS = function(reason){
-            V2.burst('🆘');
-            if (navigator.vibrate) navigator.vibrate([300,100,300,100,300]);
-            V2.speak('正在发送紧急求救');
-            V2.getLocation(6000).catch(function(){ return null; }).then(function(loc){
-                var payload = { reason: reason || 'manual', loc: loc, ts: Date.now() };
-                V2.safeSend('emergency:help', payload);
-                V2.safeSend('emergency_alert', payload);
-                // 短信兜底：调用 sms: scheme
-                var arr = V2.getGuardians();
-                var primary = '';
-                try { primary = localStorage.getItem(V2.PRIMARY_KEY) || ''; } catch(e) {}
-                var g = arr.find(function(x){ return x.id === primary; }) || arr[0];
-                if (g && g.phone) {
-                    var body = '【守护者紧急求救】请立刻联系我' + (loc ? '。位置 https://maps.google.com/?q=' + loc.lat + ',' + loc.lng : '');
-                    var smsHref = 'sms:' + g.phone + (/iPhone|iPad|iPod/i.test(navigator.userAgent) ? '&' : '?') + 'body=' + encodeURIComponent(body);
-                    setTimeout(function(){
-                        if (confirm('已通过守护通道发送求救。\n是否同时拨打 ' + g.phone + ' ？')) {
-                            window.location.href = 'tel:' + g.phone;
-                        } else if (confirm('改为发送短信定位？')) {
-                            window.location.href = smsHref;
-                        }
-                    }, 800);
-                }
-                V2.toast('🆘 求救信号已发送', 6000);
-            });
-        };
-
-        /* ============================================================
-         * A8 配对永久绑定 + 重连无感
-         * ============================================================ */
-        V2.savePermanentPair = function(code, role){
-            try { localStorage.setItem(V2.PERMANENT_KEY, JSON.stringify({ code: code, role: role, savedAt: Date.now() })); } catch(e) {}
-        };
-        V2.loadPermanentPair = function(){
-            try { return JSON.parse(localStorage.getItem(V2.PERMANENT_KEY) || 'null'); } catch(e) { return null; }
-        };
-        V2.clearPermanentPair = function(){ try { localStorage.removeItem(V2.PERMANENT_KEY); } catch(e) {} };
-        V2.silentReconnect = function(){
-            var p = V2.loadPermanentPair();
-            if (!p || !p.code) return false;
-            if (window.RealTimeSync && RealTimeSync.isConnected) return false;
-            console.log('[V2 Reconnect] silent reconnect with', p.code, p.role);
-            V2.toast('🔄 自动重连中...');
-            if (p.role === 'host' && RealTimeSync.generateAuthCode) RealTimeSync.generateAuthCode();
-            else if (RealTimeSync.connectWithCode) RealTimeSync.connectWithCode(p.code);
-            return true;
-        };
-
-        /* ============================================================
-         * B3 老人首页 / 状态刷新
-         * ============================================================ */
-        V2.enterElderMode = function(){
-            V2.toggleElder(true);
-            V2.toggleDark(true);
-            document.getElementById('v2ElderHome').style.display = 'block';
-            V2.refreshElderHero();
-        };
-        V2.exitElderMode = function(){
-            document.getElementById('v2ElderHome').style.display = 'none';
-        };
-        V2.refreshElderHero = function(){
-            var arr = V2.getGuardians();
-            var primary = '';
-            try { primary = localStorage.getItem(V2.PRIMARY_KEY) || ''; } catch(e) {}
-            var g = arr.find(function(x){ return x.id === primary; }) || arr[0];
-            var hint = document.getElementById('v2PrimaryGuardianName');
-            if (hint) hint.textContent = g ? (g.name + (g.phone ? ' · ' + g.phone : '')) : '点击设置默认守护人';
-            var dot = document.getElementById('v2ElderDot');
-            var st = document.getElementById('v2ElderStatus');
-            var connected = window.RealTimeSync && RealTimeSync.isConnected;
-            if (dot) dot.className = 'v2-status-dot ' + (connected ? 'connected' : 'error');
-            if (st) st.textContent = connected ? '已连接' : '未连接';
-            V2._updateQueueBadge();
-        };
-        V2.openTaskQuick = function(){
-            V2.exitElderMode();
-            if (typeof navigateTo === 'function') navigateTo('recipient-tasks');
-        };
-
-        /* ============================================================
-         * 初始化：恢复偏好 + 监听 P2P 事件 + 自动重连
-         * ============================================================ */
-        V2.init = function(){
-            try {
-                if (localStorage.getItem(V2.DARK_KEY) === '1') V2.toggleDark(true);
-                if (localStorage.getItem(V2.ELDER_KEY) === '1') V2.toggleElder(true);
-            } catch(e) {}
-            if (window.RealTimeSync && RealTimeSync.on) {
-                RealTimeSync.on('p2p:connected', function(){
-                    V2.burst('✅');
-                    V2.speak('已建立安全连接');
-                    setTimeout(V2.flushQueue, 800);
-                    V2.refreshElderHero();
-                    // 持久化最近配对
-                    if (RealTimeSync.authCode) V2.savePermanentPair(RealTimeSync.authCode, RealTimeSync.isHost ? 'host' : 'client');
-                });
-                RealTimeSync.on('p2p:disconnected', function(){
-                    V2.refreshElderHero();
-                    // 重连尝试 5s 后
-                    setTimeout(V2.silentReconnect, 5000);
-                });
-                RealTimeSync.on('p2p:codeReady', function(d){
-                    if (d && d.code) try { localStorage.setItem(V2.LAST_CODE_KEY, d.code); } catch(e) {}
-                });
-                RealTimeSync.on('emergency:received', function(data){
-                    V2.burst('🚨');
-                    if (navigator.vibrate) navigator.vibrate([500,200,500,200,500]);
-                    V2.speak('收到紧急求救');
-                    V2.toast('🚨 收到紧急求救！', 8000);
-                });
-            }
-            V2._updateQueueBadge();
-            // 启动时自动尝试一次静默重连
-            setTimeout(V2.silentReconnect, 1500);
-            console.log('[V2] Guardian v2.0.0 ready');
-        };
-        // 等 RealTimeSync init 完后再启动
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            setTimeout(V2.init, 600);
-        } else {
-            document.addEventListener('DOMContentLoaded', function(){ setTimeout(V2.init, 600); });
-        }
-    })();
-
-    /* === 全局快捷入口（可直接 onclick 调用） === */
-    window.openV2Scan = function(){ V2.openScan(); };
-    window.openV2Host = function(){ V2.startPairAsHost(); };
-    window.openV2Elder = function(){ V2.enterElderMode(); };
-    </script>
-</body>
+    
+            
+                
+            
+        </body>
 </html>
 
 
