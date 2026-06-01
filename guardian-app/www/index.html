@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v3.0.2</title>
+    <title>守护者 Guardian v3.0.3</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -4667,21 +4667,25 @@
 
                 this._socket.on('connect', function() {
                     console.log('[SocketIO] 已连接, 加入房间 ' + code);
+                    showToast('📡 Socket.IO已连接');
                     self._socket.emit('join_room', { code: code, role: isHost ? 'host' : 'client' });
                 });
 
                 this._socket.on('peer_joined', function() {
                     console.log('[SocketIO] 对端已加入房间');
+                    showToast('👥 对端已加入');
                     if (isHost) self._startHost();
                 });
 
                 this._socket.on('signal_offer', function(data) {
                     console.log('[SocketIO] 收到 offer');
+                    showToast('📨 收到连接请求');
                     if (!isHost) self._handleOffer(data.sdp);
                 });
 
                 this._socket.on('signal_answer', function(data) {
                     console.log('[SocketIO] 收到 answer');
+                    showToast('📩 收到应答');
                     if (isHost) self._handleAnswer(data.sdp);
                 });
 
@@ -4726,6 +4730,7 @@
             },
 
             async _startHost() {
+                showToast('🔧 开始创建连接...');
                 var pc = this._makePC(true);
                 this._iceCandidateQueue = [];
                 var self = this;
@@ -4769,6 +4774,7 @@
             },
 
             async _handleAnswer(sdp) {
+                showToast('📩 处理应答...');
                 try {
                     await this.pc.setRemoteDescription({type:'answer', sdp:sdp});
                     this._flushIceQueue();
@@ -4811,6 +4817,7 @@
                 if (self.onconnect) self.onconnect();
                 if (window.RealTimeSync && !RealTimeSync.isConnected) {
                     console.log('[P2P v3.0] 中继模式直接连接 RealTimeSync');
+                    showToast('🔌 正在建立P2P...');
                     RealTimeSync._connectSig(self.dc);
                 }
             },
