@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v3.0.3</title>
+    <title>守护者 Guardian v3.0.4</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v1.108: 移除 PeerJS CDN（改用 HTTP /pair 配对 + MQTT 信令链） -->
@@ -4814,7 +4814,7 @@
                 }
                 self._setupDC();
                 showToast('🔁 已切到中继模式');
-                if (self.onconnect) self.onconnect();
+                try { if (self.onconnect) self.onconnect(); } catch(e) { console.error('[P2P] onconnect error:', e); }
                 if (window.RealTimeSync && !RealTimeSync.isConnected) {
                     console.log('[P2P v3.0] 中继模式直接连接 RealTimeSync');
                     showToast('🔌 正在建立P2P...');
@@ -8997,26 +8997,27 @@ function doChangeRole(newRole) {
 
             RealTimeSync.on('p2p:connected', function(data) {
                 console.log('[UI] P2P connected');
-                showToast('✅ P2P连接已建立！');
-                updateP2PStatus();
-                  autoCreatePairing(data);
-                var status = RealTimeSync.getStatus();
-                if (status.isHost) {
-                    setTimeout(function() {
-                        RealTimeSync._requestFullSync();
-                    }, 800);
-                    setTimeout(function() {
-                        if (typeof navigateTo === 'function') {
-                            navigateTo('guardian-add-recipient');
-                        }
-                    }, 1200);
-                } else {
-                    setTimeout(function() {
-                        if (typeof navigateTo === 'function') {
-                            navigateTo('recipient-home');
-                        }
-                    }, 1000);
-                }
+                try {
+                    showToast('✅ P2P连接已建立！');
+                    updateP2PStatus();
+                    var status = RealTimeSync.getStatus();
+                    if (status.isHost) {
+                        setTimeout(function() {
+                            RealTimeSync._requestFullSync();
+                        }, 800);
+                        setTimeout(function() {
+                            if (typeof navigateTo === 'function') {
+                                navigateTo('guardian-add-recipient');
+                            }
+                        }, 1200);
+                    } else {
+                        setTimeout(function() {
+                            if (typeof navigateTo === 'function') {
+                                navigateTo('recipient-home');
+                            }
+                        }, 1000);
+                    }
+                } catch(e) { console.error('[p2p:connected] handler error:', e); }
                 if (typeof currentRole !== 'undefined' && currentRole === 'demo') {
                     setTimeout(function() {
                         RealTimeSync._requestFullSync();
