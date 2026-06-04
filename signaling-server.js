@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8080;
-const VERSION = '4.0.0';
+const VERSION = '4.3.9';
 const PAIR_TTL = 300000;
 
 function createLogger(prefix) {
@@ -85,20 +85,39 @@ io.on('connection', (socket) => {
 // ========== 配对 HTTP API ==========
 const pairs = new Map();
 
+// 调试：定期打印所有活跃的配对码
+function debugActivePairs() {
+  const now = Date.now();
+  const active = [];
+  for (const [code, pair] of pairs) {
+    const age = Math.round((now - pair.createdAt) / 1000);
+    const remaining = Math.max(0, Math.round((PAIR_TTL - (now - pair.createdAt)) / 1000));
+    active.push({ code, age: age + 's', remaining: remaining + 's', joinedBy: !!pair.joinedBy });
+  }
+  if (active.length > 0) {
+    log.info('Active pairs:', JSON.stringify(active));
+  }
+}
+setInterval(debugActivePairs, 10000);
+
 app.post('/pair', (req, res) => {
   let code;
   do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (pairs.has(code));
   pairs.set(code, { code, createdBy: null, joinedBy: null, createdAt: Date.now() });
-  log.ok('pair created: ' + code);
+  log.ok('pair created: ' + code + ', total pairs: ' + pairs.size);
   res.json({ status: 'ok', code, expiresIn: PAIR_TTL / 1000, role: 'guardian' });
 });
 
 app.post('/pair/:code/join', (req, res) => {
-  const pair = pairs.get(req.params.code);
-  if (!pair) return res.status(404).json({ error: 'pair code not found or expired' });
-  if (pair.joinedBy) return res.status(400).json({ error: 'pair already joined' });
-  pair.joinedBy = true;
-  log.ok('pair joined: ' + req.params.code);
+  const code = req.params.code;
+  log.info('pair join request for code:', code, ', available codes:', Array.from(pairs.keys()).join(','));
+  const pair = pairs.get(code);
+  if (!pair) {
+    log.warn('pair not found: ' + code);
+    return res.status(404).json({ error: 'pair code not found or expired' });
+  }
+  if (!pair.joinedBy) pair.joinedBy = true;
+  log.ok('pair joined: ' + code + ', total pairs: ' + pairs.size);
   res.json({ status: 'ok', code: req.params.code, role: 'protected', roomId: req.params.code });
 });
 
