@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8080;
-const VERSION = process.env.APP_VERSION || '4.3.8';
+const VERSION = process.env.APP_VERSION || '4.4.0';
 const PAIR_TTL = parseInt(process.env.PAIR_TTL || '300000', 10);
 const RELAY_MAX_SIZE = parseInt(process.env.RELAY_MAX_SIZE || '262144', 10);
 const RELAY_RATE_LIMIT = parseInt(process.env.RELAY_RATE_LIMIT || '30', 10);

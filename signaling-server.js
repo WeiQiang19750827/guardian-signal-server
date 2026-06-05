@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8080;
-const VERSION = '4.3.9';
+const VERSION = '4.4.0';
 const PAIR_TTL = 300000;
 
 function createLogger(prefix) {
