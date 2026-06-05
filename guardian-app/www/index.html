@@ -9,13 +9,16 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v4.0.0</title>
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>守护者 Guardian v4.4.5</title>
+    <script src="cordova.js"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.8.1/dist/socket.io.min.js"
         onerror="console.warn('socket.io CDN load failed')"
         onload="console.log('socket.io CDN loaded')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"
+        onerror="console.warn('heic2any CDN load failed')"
+        onload="console.log('heic2any CDN loaded')"></script>
     <script>
         (function(){
             var styleInjected = false;
@@ -41,12 +44,214 @@
                     html.mobile-mode .phone-screen { border-radius: 0 !important; width: 100% !important; height: 100% !important; position: relative !important; }\
                     html.mobile-mode .app-page { padding-top: env(safe-area-inset-top, 20px) !important; padding-bottom: 80px !important; }\
                     html.mobile-mode .tab-bar { padding-bottom: env(safe-area-inset-bottom, 12px) !important; }\
-                    html.mobile-mode #roleSelectionOverlay { position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 99999 !important; display: flex !important; align-items: center !important; justify-content: center !important; }\
+                    html.mobile-mode #roleSelectionOverlay { position: absolute !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100% !important; height: 100% !important; z-index: 99999 !important; align-items: center !important; justify-content: center !important; }\
                 ';
                 document.head.appendChild(style);
             }
             applyMobileMode();
             window.addEventListener('resize', applyMobileMode);
+        })();
+    </script>
+    <script>
+        // ⚠️ 独立权限弹窗显示+按钮预绑定（立即执行，不依赖任何其他代码）
+        (function() {
+            'use strict';
+            var _ptries = 0;
+            function _tryShowPerm() {
+                var el = document.getElementById('permissionPrompt');
+                if (!el) {
+                    if (_ptries++ > 10) return false;
+                    setTimeout(_tryShowPerm, 200);
+                    return false;
+                }
+                el.style.display = 'flex';
+                console.log('[Perm] Static prompt shown');
+                // 立即给按钮绑定早期处理器（防止 deviceready 前点击无响应）
+                var gb = document.getElementById('permGrantBtn');
+                var sb = document.getElementById('permSkipBtn');
+                if (gb && !gb._earlyBound) {
+                    gb._earlyBound = true;
+                    gb.onclick = function() {
+                        var btn = document.getElementById('permGrantBtn');
+                        if (btn.disabled) return;
+                        btn.textContent = '⏳ 授权中...';
+                        btn.disabled = true;
+                        // 尝试直接调用 PermissionManager（如果已可用）
+                        if (typeof PermissionManager !== 'undefined' && PermissionManager.requestAllPermissions) {
+                            _execPermRequest(btn);
+                        } else {
+                            btn.textContent = '⏳ 初始化中...';
+                            var _wait = setInterval(function() {
+                                if (typeof PermissionManager !== 'undefined' && PermissionManager.requestAllPermissions) {
+                                    clearInterval(_wait);
+                                    _execPermRequest(btn);
+                                }
+                            }, 300);
+                            // 最多等15秒
+                            setTimeout(function() {
+                                clearInterval(_wait);
+                                if (btn.disabled) {
+                                    btn.textContent = '重试';
+                                    btn.disabled = false;
+                                }
+                            }, 15000);
+                        }
+                    };
+                }
+                if (sb && !sb._earlyBound) {
+                    sb._earlyBound = true;
+                    sb.onclick = function() {
+                        document.getElementById('permissionPrompt').style.display = 'none';
+                    };
+                }
+                return true;
+            }
+            // 通用的权限请求执行函数（可被早期处理器和 showPermissionPrompt 共用）
+            window._execPermRequest = function(btn) {
+                btn.textContent = '⏳ 定位权限...';
+                // 8秒超时保护
+                var tmr = setTimeout(function() {
+                    console.warn('[Perm] Overall timeout');
+                    btn.textContent = '继续';
+                    btn.disabled = false;
+                    setTimeout(function() {
+                        var p = document.getElementById('permissionPrompt');
+                        if (p) p.style.display = 'none';
+                    }, 2000);
+                }, 8000);
+                PermissionManager.requestAllPermissions().then(function(results) {
+                    clearTimeout(tmr);
+                    if (results.location && document.getElementById('perm-location')) document.getElementById('perm-location').innerHTML = '✅ 定位权限 — 已授权';
+                    if (results.background && document.getElementById('perm-background')) document.getElementById('perm-background').innerHTML = '✅ 后台运行权限 — 已授权';
+                    else if (document.getElementById('perm-background')) document.getElementById('perm-background').innerHTML = '⚠️ 后台运行权限 — 请手动开启';
+                    if (results.notification && document.getElementById('perm-notification')) document.getElementById('perm-notification').innerHTML = '✅ 通知权限 — 已授权';
+                    btn.textContent = '✅ 授权完成';
+                    btn.disabled = false;
+                    setTimeout(function() {
+                        var p = document.getElementById('permissionPrompt');
+                        if (p) p.style.display = 'none';
+                    }, 1500);
+                }).catch(function(e) {
+                    clearTimeout(tmr);
+                    console.error('[Perm] error:', e);
+                    btn.textContent = '继续';
+                    btn.disabled = false;
+                    setTimeout(function() {
+                        var p = document.getElementById('permissionPrompt');
+                        if (p) p.style.display = 'none';
+                    }, 1500);
+                });
+            };
+            _tryShowPerm();
+        })();
+    </script>
+    <script>
+        window.addEventListener('unhandledrejection', function(e) {
+            console.warn('[Global] Unhandled Promise rejection:', e.reason);
+        });
+        window.addEventListener('pagehide', function() {
+            if (window._stateRefreshTimer) { clearInterval(window._stateRefreshTimer); window._stateRefreshTimer = null; }
+            if (window._overdueTaskTimer) { clearInterval(window._overdueTaskTimer); window._overdueTaskTimer = null; }
+            if (window.authCodeExpiryTimer) { clearInterval(window.authCodeExpiryTimer); }
+        });
+    </script>
+    <script>
+        (function(){
+            var _MATERIAL_FALLBACK_MAP = {
+                'home': '🏠', 'calendar_month': '📅', 'monitor_heart': '❤️',
+                'settings': '⚙️', 'favorite': '❤️', 'bloodtype': '❤️',
+                'opacity': '💧', 'air': '💨', 'water_drop': '💧',
+                'pill': '💊', 'notification_important': '🔔', 'location_on': '📍',
+                'arrow_back': '←', 'check_circle': '✓', 'cancel': '✕',
+                'arrow_forward_ios': '›', 'add': '+', 'delete': '✕',
+                'edit': '✏️', 'search': '🔍', 'refresh': '🔄',
+                'info': 'ℹ️', 'warning': '⚠️', 'close': '✕',
+                'more_vert': '⋮', 'person': '👤', 'group': '👥',
+                'star': '⭐', 'check': '✓', 'arrow_drop_down': '▼',
+                'menu': '☰', 'mic': '🎤', 'send': '📤',
+                'photo_camera': '📷', 'image': '🖼️', 'videocam': '📹',
+                'timer': '⏱️', 'restart_alt': '🔄', 'smartphone': '📱',
+                'call': '📞', 'chat': '💬', 'alarm': '⏰',
+                'schedule': '📋', 'note_add': '📝', 'assignment': '📋',
+                'visibility': '👁️', 'lock': '🔒', 'sync': '🔄',
+                'error': '❌', 'done_all': '✅',
+                'biotech': '🧬', 'psychology': '🧠', 'elderly': '👴',
+                'wc': '🚻', 'restaurant': '🍽️', 'local_hospital': '🏥',
+                'local_pharmacy': '💊', 'pets': '🐾', 'cruelty_free': '🐰',
+                'spa': '💆', 'self_improvement': '🧘', 'checklist': '📋',
+                'task_alt': '✅', 'rule': '📏', 'science': '🔬',
+                'vaccines': '💉', 'medication': '💊', 'healing': '🩹',
+                'troubleshoot': '🔧', 'health_and_safety': '🛡️',
+                'emergency': '🚨', 'ambulance': '🚑', 'fireplace': '🔥',
+                'fitness_center': '🏋️', 'night_shelter': '🌙',
+                'elderly_woman': '👵', 'blind': '🦯', 'deaf': '🧏',
+                'accessible': '♿', 'assist_walker': '🚶',
+                'wheelchair': '🦽', 'stethoscope': '🩺',
+                'thermostat': '🌡️', 'whatshot': '🔥', 'ac_unit': '❄️',
+                'snowing': '🌨️', 'sunny': '☀️', 'thunderstorm': '⛈️',
+                'rainy': '🌧️', 'wind_power': '💨', 'humidity': '💧',
+                'bar_chart': '📊', 'trending_up': '📈', 'trending_down': '📉',
+                'insights': '📊', 'analytics': '📊', 'monitoring': '📡',
+                'track_changes': '🎯', 'flag': '🚩', 'flag_circle': '🏁',
+                'logout': '🚪', 'login': '🚪', 'exit_to_app': '🚪',
+                'download': '⬇️', 'upload': '⬆️', 'save': '💾',
+                'print': '🖨️', 'share': '📤', 'link': '🔗',
+                'qr_code': '📱', 'qr_code_scanner': '📷',
+                'bluetooth': '🔵', 'bluetooth_connected': '🔷',
+                'bluetooth_disabled': '🔶', 'wifi': '📶', 'signal': '📶',
+                'network_check': '📶', 'lan': '🌐', 'public': '🌍',
+                'travel_explore': '🧭', 'map': '🗺️', 'directions': '🗺️',
+                'navigation': '🧭', 'near_me': '📍', 'my_location': '📍',
+                'gps_fixed': '📍', 'gps_not_fixed': '📍',
+                'gps_off': '📍', 'compass': '🧭', 'satellite': '🛰️',
+                'radar': '📡', 'pest_control': '🐛', 'bug_report': '🐛',
+                'bedtime': '🌙', 'bed': '🛏️', 'weekend': '🛋️',
+                'coffee': '☕', 'liquor': '🍸', 'local_bar': '🍸',
+                'local_cafe': '☕', 'room_service': '🛎️',
+                'celebration': '🎉', 'cake': '🎂', 'card_giftcard': '🎁',
+                'videogame_asset': '🎮', 'sports_esports': '🎮',
+                'sports_soccer': '⚽', 'sports_basketball': '🏀',
+                'sports_tennis': '🎾', 'sports_baseball': '⚾',
+                'piano': '🎹', 'music_note': '🎵', 'theater_comedy': '🎭',
+                'palette': '🎨', 'brush': '🖌️', 'colorize': '🎨',
+                'new_releases': '📢', 'campaign': '📢', 'volume_up': '🔊',
+                'volume_off': '🔇', 'hearing': '🦻', 'record_voice_over': '🎙️',
+                'voice_chat': '🎙️', 'podcasts': '🎙️', 'radio': '📻',
+                'headphones': '🎧', 'headset_mic': '🎧',
+                'keyboard': '⌨️', 'mouse': '🖱️', 'computer': '💻',
+                'laptop': '💻', 'tv': '📺', 'monitor': '🖥️',
+                'watch': '⌚', 'memory': '🧠', 'storage': '💾',
+                'battery': '🔋', 'battery_charging': '🔋',
+                'power': '🔌', 'power_off': '🔌', 'toggle_on': '🔛',
+                'toggle_off': '🔕', 'check_box': '✅', 'check_box_outline': '⬜',
+                'radio_button_checked': '🔘', 'radio_button_unchecked': '⚪'
+            };
+            function _applyIconFallback() {
+                var icons = document.querySelectorAll('.material-icons-round');
+                for (var i = 0; i < icons.length; i++) {
+                    var key = icons[i].textContent.trim().toLowerCase();
+                    if (icons[i].getAttribute('data-fallback') === '1') continue;
+                    if (_MATERIAL_FALLBACK_MAP[key]) {
+                        icons[i].textContent = _MATERIAL_FALLBACK_MAP[key];
+                        icons[i].setAttribute('data-fallback', '1');
+                    }
+                }
+            }
+            _applyIconFallback();
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', _applyIconFallback);
+            }
+            setTimeout(_applyIconFallback, 50);
+            setTimeout(_applyIconFallback, 200);
+            setTimeout(_applyIconFallback, 500);
+            setTimeout(_applyIconFallback, 1500);
+            setTimeout(_applyIconFallback, 3000);
+            if (window.MutationObserver) {
+                var _obsIcon = new MutationObserver(function(){
+                    _applyIconFallback();
+                });
+                _obsIcon.observe(document.documentElement, { childList: true, subtree: true });
+            }
         })();
     </script>
     <style>
@@ -285,9 +490,17 @@
         .tab-item .material-icons-round {
             font-size: 24px;
             transition: all 0.2s ease;
+            font-family: "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji","Android Emoji",sans-serif;
         }
         .tab-item.active .material-icons-round {
             font-size: 26px;
+        }
+
+        .material-icons-round {
+            font-family: "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji","Android Emoji","Xiaomi Emoji","Huawei Emoji","EmojiOne Color","JoyPixels","Twemoji Mozilla","OpenMoji","Symbola",sans-serif;
+        }
+        .material-icons-round[data-fallback="1"] {
+            font-family: "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji","Android Emoji","Xiaomi Emoji","Huawei Emoji","EmojiOne Color","JoyPixels","Twemoji Mozilla","OpenMoji","Symbola",sans-serif;
         }
 
         .bottom-nav-bar {
@@ -766,9 +979,31 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
         }
+        @keyframes fadeInUp {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
+    <!-- ⚠️ 静态权限弹窗 HTML（初始隐藏，由 head 中脚本立即显示） -->
+    <div id="permissionPrompt" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:100001;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:24px;padding:30px 20px;max-width:360px;width:88%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:fadeInUp 0.3s ease;">
+            <div style="font-size:48px;margin-bottom:15px;">🛡️</div>
+            <div style="font-size:20px;font-weight:700;color:#111827;margin-bottom:8px;">权限申请</div>
+            <div style="font-size:14px;color:#6B7280;margin-bottom:20px;line-height:1.5;">为了让守护者App正常工作，请允许以下权限：</div>
+            <div id="permList" style="text-align:left;margin-bottom:20px;padding:0 5px;">
+                <div id="perm-location" style="padding:8px 0;font-size:14px;color:#6B7280;">📍 定位权限 — 用于位置守护</div>
+                <div id="perm-background" style="padding:8px 0;font-size:14px;color:#6B7280;">🔋 后台运行权限 — 确保位置实时守护</div>
+                <div id="perm-notification" style="padding:8px 0;font-size:14px;color:#6B7280;">🔔 通知权限 — 用于任务提醒</div>
+                <div id="perm-camera" style="padding:8px 0;font-size:14px;color:#6B7280;">📷 相机权限 — 使用相机时自动申请</div>
+                <div id="perm-audio" style="padding:8px 0;font-size:14px;color:#6B7280;">🎤 录音权限 — 使用录音时自动申请</div>
+            </div>
+            <button id="permGrantBtn" style="width:100%;padding:14px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;border-radius:14px;font-size:16px;font-weight:600;cursor:pointer;">一键授权</button>
+            <div style="margin-top:8px;"><button id="permSkipBtn" style="background:none;border:none;color:#9CA3AF;font-size:13px;cursor:pointer;padding:8px;">跳过，稍后设置</button></div>
+        </div>
+    </div>
+
     <!-- 身份选择覆盖层 -->
     <div id="roleSelectionOverlay" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);z-index:99999;display:flex;align-items:center;justify-content:center;overflow:hidden;">
         <div style="background:white;border-radius:24px;padding:24px 16px;max-width:380px;width:88%;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center;">
@@ -1177,32 +1412,32 @@
                             <div class="card-title">实时数据</div>
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#EF4444;">favorite</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#EF4444;">❤️</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #E74C3C;" id="guardianHealthHeartRate">72</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">心率 (bpm)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#3B82F6;">bloodtype</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#3B82F6;">🩸</div>
                                     <div style="font-size: 18px; font-weight: bold; color: #3498DB;" id="guardianHealthBloodPressure">120/80</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">血压 (mmHg)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#10B981;">air</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#10B981;">💨</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #2ECC71;" id="guardianHealthSpO2">98%</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">血氧饱和度 (%)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#F59E0B;">water_drop</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#F59E0B;">💧</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #F39C12;" id="guardianHealthFastingBloodSugar">5.6</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">空腹血糖 (mmol/L)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#E67E22;">opacity</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#E67E22;">🍬</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #E67E22;" id="guardianHealthPostprandialBloodSugar">7.2</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">餐后血糖 (mmol/L)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#8B5CF6;">location_on</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#8B5CF6; cursor:pointer;" onclick="openLocationInMap()" title="打开地图查看位置">📍</div>
                                     <div style="font-size: 14px; font-weight: bold; color: #9B59B6;" id="guardianHealthLocation">家中</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">当前位置</div>
                                 </div>
@@ -1433,7 +1668,6 @@
                             <div id="serverStatusDot" style="width:8px;height:8px;border-radius:50%;background:#BDC3C7;"></div>
                             <span id="serverStatusText">检测服务器连接...</span>
                         </div>
-                        </div>
                         <div id="p2pStatusCard" style="background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid #BDC3C7;">
                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
                                 <div id="p2pStatusDot" style="width: 10px; height: 10px; border-radius: 50%; background: #BDC3C7;"></div>
@@ -1449,7 +1683,7 @@
                                 <div id="authCodeValue" style="font-size: 36px; font-weight: bold; color: #4F46E5; letter-spacing: 8px; font-family: monospace;"></div>
                                 <div id="authCodeExpiry" style="font-size: 11px; color: #95A5A6; margin-top: 6px;"></div>
                             </div>
-                            <button id="generateCodeBtn" onclick="handleGenerateAuthCode()" style="width: 100%; padding: 10px; background: #4F46E5; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">生成授权码</button>
+                            <button id="generateCodeBtn" style="width: 100%; padding: 10px; background: #4F46E5; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">生成授权码</button>
                         </div>
                         <div id="p2pClientSection" style="display: none; background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                             <div style="font-size: 14px; font-weight: 600; color: #2C3E50; margin-bottom: 10px;">👴 输入授权码</div>
@@ -1535,19 +1769,19 @@
                     <!-- 底部导航 -->
                     <div class="bottom-nav-bar tab-bar">
                         <div class="nav-button tab-item active" onclick="switchTab(this, 'guardian', 'home')">
-                            <span class="material-icons-round">home</span>
+                            <span style="font-size:24px;">🏠</span>
                             <span>首页</span>
                         </div>
                         <div class="nav-button tab-item" onclick="switchTab(this, 'guardian', 'calendar')">
-                            <span class="material-icons-round">calendar_month</span>
+                            <span style="font-size:24px;">📅</span>
                             <span>日历</span>
                         </div>
                         <div class="nav-button tab-item" onclick="switchTab(this, 'guardian', 'health')">
-                            <span class="material-icons-round">monitor_heart</span>
+                            <span style="font-size:24px;">❤️</span>
                             <span>健康</span>
                         </div>
                         <div class="nav-button tab-item" onclick="switchTab(this, 'guardian', 'settings')">
-                            <span class="material-icons-round">settings</span>
+                            <span style="font-size:24px;">⚙️</span>
                             <span>设置</span>
                         </div>
                     </div>
@@ -1581,7 +1815,7 @@
                         <div style="font-size: 14px; color: #7F8C8D; margin-bottom: 20px;">2026年5月15日 星期五</div>
 
                         <div class="emergency-btn" data-role-editable onclick="triggerEmergencyHelp()">
-                            <div class="emergency-icon"><span class="material-icons-round" style="font-size:48px;color:white;">notification_important</span></div>
+                            <div class="emergency-icon"><span style="font-size:48px;color:white;">🔔</span></div>
                             <div class="emergency-text">紧急求助</div>
                             <div class="emergency-hint">点击立即通知监护人</div>
                         </div>
@@ -1636,32 +1870,32 @@
                             <div class="card-title">实时数据</div>
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#EF4444;">favorite</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#EF4444;">❤️</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #E74C3C;" id="healthHeartRate">72</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">心率 (bpm)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#3B82F6;">bloodtype</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#3B82F6;">🩸</div>
                                     <div style="font-size: 18px; font-weight: bold; color: #3498DB;" id="healthBloodPressure">120/80</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">血压 (mmHg)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#10B981;">air</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#10B981;">💨</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #2ECC71;" id="healthSpO2">98%</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">血氧饱和度 (%)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#F59E0B;">water_drop</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#F59E0B;">💧</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #F39C12;" id="healthFastingBloodSugar">5.6</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">空腹血糖 (mmol/L)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#E67E22;">opacity</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#E67E22;">🍬</div>
                                     <div style="font-size: 24px; font-weight: bold; color: #E67E22;" id="healthPostprandialBloodSugar">7.2</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">餐后血糖 (mmol/L)</div>
                                 </div>
                                 <div style="text-align: center; padding: 15px; background: #F8F9FA; border-radius: 10px;">
-                                    <div style="font-size: 32px; margin-bottom: 5px;"><span class="material-icons-round" style="font-size:32px;color:#8B5CF6;">location_on</span></div>
+                                    <div style="font-size: 32px; margin-bottom: 5px; color:#8B5CF6; cursor:pointer;" onclick="openLocationInMap()" title="打开地图查看位置">📍</div>
                                     <div style="font-size: 14px; font-weight: bold; color: #9B59B6;" id="healthLocation">家中</div>
                                     <div style="font-size: 12px; color: #7F8C8D;">当前位置</div>
                                 </div>
@@ -1671,7 +1905,7 @@
                         <!-- 位置详情 -->
                         <div class="card">
                             <div class="card-title">📍 位置信息</div>
-                            <div id="healthMapContainer" style="height: 200px; border-radius: 12px; overflow: hidden;">
+                            <div id="healthMapContainer" style="height: 200px; border-radius: 12px; overflow: hidden; cursor:pointer;" onclick="openLocationInMap()">
                                 <!-- 高德地图将在这里渲染 -->
                                 <div style="height: 100%; display: flex; align-items: center; justify-content: center; background: #E8F4F8;">
                                     <div style="text-align: center;">
@@ -1681,7 +1915,7 @@
                                 </div>
                             </div>
                             <div style="margin-top: 10px; padding: 10px; background: #F8F9FA; border-radius: 8px;">
-                                <div style="font-size: 14px; color: #2C3E50; font-weight: 600;" id="healthAddressText">正在获取位置...</div>
+                                <div style="font-size: 14px; color: #2C3E50; font-weight: 600; cursor:pointer;" id="healthAddressText" onclick="openLocationInMap()">正在获取位置...</div>
                                 <div style="font-size: 12px; color: #7F8C8D; margin-top: 5px;" id="healthLocationTime">更新于 --</div>
                             </div>
                             <button onclick="refreshLocation()" style="width: 100%; margin-top: 10px; padding: 12px; background: #3498DB; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">🔄 刷新位置</button>
@@ -1873,19 +2107,19 @@
                     <!-- 底部导航 -->
                     <div class="bottom-nav-bar tab-bar">
                         <div class="nav-button tab-item active" onclick="switchTab(this, 'recipient', 'home')">
-                            <span class="material-icons-round">home</span>
+                            <span style="font-size:24px;">🏠</span>
                             <span>首页</span>
                         </div>
                         <div class="nav-button tab-item" onclick="switchTab(this, 'recipient', 'calendar')">
-                            <span class="material-icons-round">calendar_month</span>
+                            <span style="font-size:24px;">📅</span>
                             <span>日历</span>
                         </div>
                         <div class="nav-button tab-item" onclick="switchTab(this, 'recipient', 'health')">
-                            <span class="material-icons-round">monitor_heart</span>
+                            <span style="font-size:24px;">❤️</span>
                             <span>健康</span>
                         </div>
                         <div class="nav-button tab-item" onclick="switchTab(this, 'recipient', 'settings')">
-                            <span class="material-icons-round">settings</span>
+                            <span style="font-size:24px;">⚙️</span>
                             <span>设置</span>
                         </div>
                     </div>
@@ -2052,12 +2286,12 @@
                         <div style="margin-bottom: 15px;">
                             <div style="font-size: 14px; color: #7F8C8D; margin-bottom: 10px;">添加图片：</div>
                             <div style="display: flex; gap: 10px; flex-wrap: wrap;" id="recipientMoodImagePreview">
-                                <div onclick="document.getElementById('recipientMoodImageInput').click()" 
+                                <div onclick="triggerRecipientMoodFileInput()" 
                                      style="width: 80px; height: 80px; border: 2px dashed #E0E0E0; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; color: #95A5A6;">
                                     📷
                                 </div>
                             </div>
-                            <input type="file" id="recipientMoodImageInput" accept="image/*" multiple style="display: none;" onchange="handleRecipientMoodImageUpload(event)">
+                            <input type="file" id="recipientMoodImageInput" accept="image/*" capture="environment" multiple style="opacity:0;position:fixed;left:-200px;top:-200px;width:200px;height:200px;z-index:-1;" onchange="handleRecipientMoodImageUpload(event)">
                         </div>
 
                         <!-- 按钮 -->
@@ -2087,6 +2321,19 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // ========== 提前注册 initApp（确保不会被后续错误阻断） ==========
+        if (typeof window.cordova !== 'undefined') {
+            document.addEventListener('deviceready', initApp, false);
+            if (document.readyState !== 'loading') setTimeout(initApp, 500);
+        } else {
+            if (document.readyState === 'loading') {
+                window.addEventListener('DOMContentLoaded', initApp);
+            } else {
+                setTimeout(initApp, 100);
+            }
+        }
+        console.log('[Init] initApp event registered');
+
         // ========== 优化后的实时数据同步服务 ==========
         const RealTimeSync = {
             // ========== v1.67: MQTT信令链全面修复 ==========
@@ -2102,6 +2349,12 @@
             isConnected: false,
             peerId: null,
             lastSyncTimestamps: {},
+            _dedupMap: {},
+            _dedupById: {},
+            _msgSeq: 0,
+            _offlineQueue: [],
+            _dualRelayActive: false,
+            _pairedRooms: {},
             reconnectTimer: null,
             heartbeatTimer: null,
             fastHeartbeatTimer: null,
@@ -2139,7 +2392,7 @@
                 try {
                     var pc = new RTCPeerConnection({ iceServers: [] });
                     pc.createDataChannel('');
-                    pc.createOffer().then(function(offer) { pc.setLocalDescription(offer); }).catch(function(){});
+                    pc.createOffer().then(function(offer) { pc.setLocalDescription(offer); }).catch(function(e) { console.warn('[P2P] createOffer failed:', e); });
                     pc.onicecandidate = function(e) {
                         if (!e || !e.candidate) return;
                         var ipMatch = /([0-9]{1,3}\.){3}[0-9]{1,3}/.exec(e.candidate.candidate);
@@ -2152,10 +2405,11 @@
                         }
                     };
                     setTimeout(function() {
-                        try { pc.close(); } catch(e) {}
+                        try { pc.close(); } catch(e) { console.warn('[P2P] pc.close timeout error:', e); }
                         callback(null);
                     }, 2000);
                 } catch(e) {
+                    console.warn('[P2P] _getLocalIP error:', e);
                     callback(null);
                 }
             },
@@ -2195,7 +2449,7 @@
                 try {
                     var raw = localStorage.getItem('guardian_publicIPs');
                     if (raw) ips = JSON.parse(raw);
-                } catch(e) {}
+                } catch(e) { console.warn('[P2P] _getPublicIPs parse error:', e); }
                 return Array.isArray(ips) ? ips : [];
             },
 
@@ -2255,7 +2509,7 @@
                         if (ips.length > 10) ips.shift();
                         localStorage.setItem('guardian_publicIPs', JSON.stringify(ips));
                     }
-                } catch(e) {}
+                } catch(e) { console.warn('[P2P] _savePublicIP error:', e); }
             },
 
             // v2.0.2: Railway TURN 发现（最高优先级）
@@ -2381,7 +2635,7 @@
                         });
                         return;
                     }
-                } catch(e) {}
+                } catch(e) { console.warn('[AutoDiscover] gist fetch error:', e); }
                 
                 // 优先级1: localStorage 中的云端URL
                 this._tryLocalStorageCloudConfig();
@@ -2408,7 +2662,7 @@
                         });
                         return;
                     }
-                } catch(e) {}
+                } catch(e) { console.warn('[AutoDiscover] localStorage read error:', e); }
                 
                 this._tryManualConfig();
             },
@@ -2434,7 +2688,7 @@
                                         self._dispatch('p2p:serverDiscovered', { found: true, config: config, source: 'manual' });
                                         return;
                                     }
-                                } catch(e) {}
+                                } catch(e) { console.warn('[AutoDiscover] manual config parse error:', e); }
                                 self._startDiscovery();
                             };
                             xhr.onerror = function() { self._startDiscovery(); };
@@ -2444,7 +2698,7 @@
                             return;
                         }
                     }
-                } catch(e) {}
+                } catch(e) { console.warn('[AutoDiscover] manual config error:', e); }
                 this._startDiscovery();
             },
 
@@ -2654,6 +2908,7 @@
                 
                 // 网络状态监听
                 this._loadPersistedConnection();
+                this._loadPersistedRooms();
                 this.networkOnline = navigator.onLine !== false;
                 
                 // v1.59: ICE Restart - 监听网络类型变化
@@ -2679,7 +2934,9 @@
                     if (!this.isConnected && this.authCode) {
                         this._attemptReconnect();
                     }
-                    // v1.59: 网络恢复时尝试重启ICE
+                    if (Object.keys(this._pairedRooms).length > 0) {
+                        MultiRelayBus._ensureConnection();
+                    }
                     if (this.isConnected) {
                         console.log('[P2P ICE Restart] 网络恢复，重启ICE');
                         this._dispatch('p2p:networkRestore', {});
@@ -2719,18 +2976,42 @@
                 return 'guardian_' + code;
             },
 
-            generateAuthCode() {
-                if (typeof currentRole !== 'undefined' && currentRole === 'demo') {
-                    this.authCode = this._generateAuthCode();
-                    this.authCodeExpiry = Date.now() + this.AUTH_CODE_TTL;
-                    this.isHost = true;
-                    this.peerId = this._peerIdFromAuthCode(this.authCode);
-                    this._demoMode = true;
-                    console.log('[P2P DEMO] 模拟生成授权码:', this.authCode);
-                    this._dispatch('p2p:codeReady', { code: this.authCode, expiresAt: this.authCodeExpiry });
-                    return { code: this.authCode, expiresAt: this.authCodeExpiry };
+            _fetchWithRetry(url, options, maxRetries, delayMs) {
+                var self = this;
+                maxRetries = maxRetries || 3;
+                delayMs = delayMs || 1000;
+                
+                function attempt(retryCount) {
+                    return new Promise(function(resolve, reject) {
+                        fetch(url, options)
+                            .then(function(response) {
+                                if (!response.ok && response.status >= 500 && retryCount < maxRetries) {
+                                    console.log('[P2P] 服务器错误 ' + response.status + ', 重试 ' + (retryCount + 1) + '/' + maxRetries);
+                                    setTimeout(function() {
+                                        attempt(retryCount + 1).then(resolve).catch(reject);
+                                    }, delayMs * Math.pow(2, retryCount));
+                                } else {
+                                    resolve(response);
+                                }
+                            })
+                            .catch(function(error) {
+                                if (retryCount < maxRetries) {
+                                    console.log('[P2P] 网络错误, 重试 ' + (retryCount + 1) + '/' + maxRetries + ': ' + error.message);
+                                    setTimeout(function() {
+                                        attempt(retryCount + 1).then(resolve).catch(reject);
+                                    }, delayMs * Math.pow(2, retryCount));
+                                } else {
+                                    reject(error);
+                                }
+                            });
+                    });
                 }
                 
+                return attempt(0);
+            },
+
+            generateAuthCode() {
+                console.log('[P2P] generateAuthCode CALLED');
                 this._cleanupConnection();
 
                 // v1.108: 改用 HTTP 配对接口（v1.107 移植），废弃 PeerJS / 本地WS / 旧码生成
@@ -2738,29 +3019,31 @@
                 this.isHost = true;
                 this.authCode = '------';
                 this.authCodeExpiry = Date.now() + this.AUTH_CODE_TTL;
-                var pendingResult = { code: this.authCode, expiresAt: this.authCodeExpiry };
 
                 this._pairServer = this._pairServer || 'https://guardian-sig-v2.up.railway.app';
-                fetch(self._pairServer + '/pair', { method: 'POST' })
-                    .then(function(r){ return r.json(); })
-                    .then(function(data){
-                        if (!data || !data.code) throw new Error('服务端返回无效');
-                        self.authCode = data.code;
-                        self.authCodeExpiry = Date.now() + (data.expiresIn ? data.expiresIn * 1000 : self.AUTH_CODE_TTL);
-                        self.peerId = self._peerIdFromAuthCode(self.authCode);
-                        console.log('[P2P v1.108] HTTP配对码已获取:', self.authCode);
-                        self._dispatch('p2p:codeReady', { code: self.authCode, expiresAt: self.authCodeExpiry });
-                        self._startPairPolling(self.authCode, 'host');
-                        // v2.0.2: 直接进入信令中继（Railway WebSocket relay 替代 MQTT）
-                        self._enterRelaySignaling('host', self.authCode);
-                    })
-                    .catch(function(e){
-                        console.error('[P2P v1.108] HTTP配对失败:', e);
-                        showToast('❌ 配对码获取失败，请检查网络');
-                        self._dispatch('p2p:error', { type: 'network', message: '配对码获取失败' });
-                    });
-
-                return pendingResult;
+                
+                return new Promise(function(resolve, reject) {
+                    self._fetchWithRetry(self._pairServer + '/pair', { method: 'POST' }, 3, 1000)
+                        .then(function(r){ return r.json(); })
+                        .then(function(data){
+                            if (!data || !data.code) throw new Error('服务端返回无效');
+                            self.authCode = data.code;
+                            self.authCodeExpiry = Date.now() + (data.expiresIn ? data.expiresIn * 1000 : self.AUTH_CODE_TTL);
+                            self.peerId = self._peerIdFromAuthCode(self.authCode);
+                            console.log('[P2P v1.108] HTTP配对码已获取:', self.authCode);
+                            self._dispatch('p2p:codeReady', { code: self.authCode, expiresAt: self.authCodeExpiry });
+                            self._startPairPolling(self.authCode, 'host');
+                            // v2.0.2: 直接进入信令中继（Railway WebSocket relay 替代 MQTT）
+                            self._enterRelaySignaling('host', self.authCode);
+                            resolve({ code: self.authCode, expiresAt: self.authCodeExpiry });
+                        })
+                        .catch(function(e){
+                            console.error('[P2P v1.108] HTTP配对失败:', e);
+                            showToast('❌ 配对码获取失败，请检查网络');
+                            self._dispatch('p2p:error', { type: 'network', message: '配对码获取失败' });
+                            reject(e);
+                        });
+                });
             },
 
             
@@ -2776,20 +3059,27 @@
                 // v1.108: 改用 HTTP /pair/:code/join 校验，再走 MQTT 信令链
                 var self = this;
                 this._pairServer = this._pairServer || 'https://guardian-sig-v2.up.railway.app';
-                fetch(self._pairServer + '/pair/' + encodeURIComponent(code) + '/join', { method: 'POST' })
+                var joinUrl = self._pairServer + '/pair/' + encodeURIComponent(code) + '/join';
+                console.log('[P2P] connectWithCode: 开始连接, code=' + code + ', url=' + joinUrl);
+                
+                self._fetchWithRetry(joinUrl, { method: 'POST' }, 3, 1000)
                     .then(function(r){
+                        console.log('[P2P] connectWithCode: HTTP响应, status=' + r.status);
                         if (r.status === 404) throw new Error('配对码无效或已过期');
                         if (r.status === 400) throw new Error('该配对码已被使用');
+                        if (r.status === 429) throw new Error('请求过于频繁，请稍后重试');
+                        if (r.status === 503) throw new Error('服务器繁忙，请稍后重试');
                         return r.json();
                     })
                     .then(function(data){
-                        console.log('[P2P v1.108] HTTP配对码已校验:', code);
+                        console.log('[P2P] connectWithCode: 配对码校验成功, data=' + JSON.stringify(data));
                         self._enterRelaySignaling('client', code);
+                        self.addPairedRecipient(code, '已配对设备');
                     })
                     .catch(function(e){
                         self._connecting = false;
                         updateP2PStatus();
-                        console.error('[P2P v1.108] HTTP配对失败:', e);
+                        console.error('[P2P] connectWithCode: HTTP配对失败:', e);
                         self._dispatch('p2p:error', { type: 'notFound', message: e.message || '配对失败' });
                         showToast('❌ ' + (e.message || '配对失败'));
                     });
@@ -2891,6 +3181,7 @@
 
             _cleanupConnection() {
                 this._stopHeartbeat();
+                this._stopConnectionMonitor();
                 // v1.108: 清理 HTTP 配对轮询
                 if (this._pairPollTimer) { clearInterval(this._pairPollTimer); this._pairPollTimer = null; }
                 if (this.reconnectTimer) {
@@ -2898,8 +3189,7 @@
                     this.reconnectTimer = null;
                 }
                 if (this._useSig && this._sigDc) {
-                    try { MqttSignaling.close(); } catch(e) {}
-                    try { LocalSignaling.close(); } catch(e) {}
+                    try { MqttSignaling.close(); } catch(e) { console.warn('[P2P] MqttSignaling.close error:', e); }
                     this._sigDc = null;
                     this._useSig = false;
                 }
@@ -2917,7 +3207,8 @@
             },
 
             _startConnectionMonitor() {
-                setInterval(() => {
+                this._stopConnectionMonitor();
+                this.connectionMonitorTimer = setInterval(() => {
                     if (this.isConnected && this._sigDc && this._useSig) {
                         if (this.lastHeartbeatAck) {
                             this._dispatch('p2p:networkStatus', { online: true, quality: 'good', latency: this.connectionLatency });
@@ -2926,8 +3217,37 @@
                 }, 5000);
             },
 
+            _stopConnectionMonitor() {
+                if (this.connectionMonitorTimer) {
+                    clearInterval(this.connectionMonitorTimer);
+                    this.connectionMonitorTimer = null;
+                }
+            },
+
             _handleIncomingData(data) {
                 if (!data || !data.type) return;
+
+                var dedupId = data._msgSeq ? (data.from + '_' + data._msgSeq) : '';
+                if (dedupId) {
+                    if (this._dedupById[dedupId]) { console.log('[P2P] Dedup msg:', dedupId); return; }
+                    this._dedupById[dedupId] = Date.now();
+                    if (Object.keys(this._dedupById).length > 500) {
+                        var cutoff = Date.now() - 60000;
+                        for (var k in this._dedupById) { if (this._dedupById[k] < cutoff) delete this._dedupById[k]; }
+                    }
+                }
+
+                if (data.payload && data.payload.timestamp && data.payload.source) {
+                    var dedupKey = data.payload.source + '_' + data.payload.timestamp;
+                    if (this._dedupMap[dedupKey]) return;
+                    this._dedupMap[dedupKey] = Date.now();
+                    if (Object.keys(this._dedupMap).length > 200) {
+                        var cutoff = Date.now() - 30000;
+                        for (var k in this._dedupMap) {
+                            if (this._dedupMap[k] < cutoff) delete this._dedupMap[k];
+                        }
+                    }
+                }
 
                 switch(data.type) {
                     case 'heartbeat':
@@ -3251,11 +3571,14 @@
 
             emit(type, data) {
                 const event = { type, data, source: this.deviceId, timestamp: Date.now() };
-
                 if (this.isConnected && this._useSig && this._sigDc) {
                     this._sendSyncEvent(event);
+                } else if (MqttSignaling && MqttSignaling.send) {
+                    MqttSignaling.send(JSON.stringify({ type: 'sync_event', from: this.deviceId, payload: event }));
                 }
-
+                if (Object.keys(this._pairedRooms).length > 0) {
+                    MultiRelayBus.broadcast({ type: 'sync_event', from: this.deviceId, payload: event });
+                }
                 localStorage.setItem('guardian_sync_' + Date.now(), JSON.stringify(event));
                 setTimeout(() => {
                     localStorage.removeItem('guardian_sync_' + event.timestamp);
@@ -3268,6 +3591,57 @@
             },
 
             _sendQueuedEvents() {
+            },
+
+            addPairedRecipient(code, recipientName) {
+                this._pairedRooms[code] = { recipient: recipientName, addedAt: Date.now() };
+                MultiRelayBus.joinRoom(code);
+                console.log('[P2P] 多配对: 已关联房间 ' + code + ' -> ' + recipientName);
+                this._persistRooms();
+            },
+
+            removePairedRecipient(code) {
+                delete this._pairedRooms[code];
+                MultiRelayBus.leaveRoom(code);
+                console.log('[P2P] 多配对: 移除房间 ' + code);
+                this._persistRooms();
+            },
+
+            getPairedRecipients() {
+                var list = [];
+                for (var code in this._pairedRooms) {
+                    if (this._pairedRooms.hasOwnProperty(code)) {
+                        list.push({ code: code, recipient: this._pairedRooms[code].recipient, addedAt: this._pairedRooms[code].addedAt });
+                    }
+                }
+                return list;
+            },
+
+            _persistRooms() {
+                try {
+                    localStorage.setItem('guardian_paired_rooms', JSON.stringify(this._pairedRooms));
+                } catch(e) { console.warn('[P2P] persistRooms error:', e); }
+            },
+
+            _loadPersistedRooms() {
+                try {
+                    var stored = localStorage.getItem('guardian_paired_rooms');
+                    if (stored) {
+                        var rooms = JSON.parse(stored);
+                        var count = 0;
+                        for (var code in rooms) {
+                            if (rooms.hasOwnProperty(code)) {
+                                this._pairedRooms[code] = rooms[code];
+                                MultiRelayBus.joinRoom(code);
+                                count++;
+                            }
+                        }
+                        if (count > 0) {
+                            console.log('[P2P] 加载 ' + count + ' 个已保存配对');
+                            showToast('🔄 正在恢复 ' + count + ' 个配对连接...');
+                        }
+                    }
+                } catch(e) { console.warn('[P2P] _loadPersistedRooms error:', e); }
             },
 
             _send(data) {
@@ -3302,10 +3676,19 @@
 
             _attemptReconnect() {
                 console.log('[P2P] Reconnect requested');
-
+                this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
+                if (this._reconnectAttempts > 3) {
+                    console.log('[P2P] Max reconnect attempts reached, show pairing');
+                    var st = document.getElementById('reconnectStatus');
+                    if (st) st.textContent = '重连失败';
+                    showReconnectPairMode();
+                    return;
+                }
                 this.reconnectTimer = setTimeout(() => {
                     if (this.authCode) {
-                        this.connectWithCode(this.authCode);
+                        var st = document.getElementById('reconnectStatus');
+                        if (st) st.textContent = '重连中 (' + this._reconnectAttempts + '/3)...';
+                        this._enterRelaySignaling('client', this.authCode);
                     }
                 }, this.RECONNECT_DELAY);
             },
@@ -3316,10 +3699,11 @@
                         authCode: this.authCode,
                         isHost: this.isHost,
                         peerId: this.peerId,
+                        expiresAt: this.authCodeExpiry || (Date.now() + this.AUTH_CODE_TTL),
                         connectedAt: Date.now()
                     };
                     localStorage.setItem('guardian_p2p_connection', JSON.stringify(connInfo));
-                } catch(e) {}
+                } catch(e) { console.warn('[P2P] _persistConnection error:', e); }
             },
 
             _loadPersistedConnection() {
@@ -3329,20 +3713,19 @@
                         const connInfo = JSON.parse(stored);
                         this._dispatch('p2p:previousConnection', connInfo);
                     }
-                } catch(e) {}
+                } catch(e) { console.warn('[P2P] _loadPersistedConnection error:', e); }
             },
 
             disconnect() {
                 this._stopHeartbeat();
+                this._stopConnectionMonitor();
                 if (this.reconnectTimer) {
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
                 }
                 this.isConnected = false;
-                this.authCode = null;
-                this.authCodeExpiry = null;
                 this._demoMode = false;
-                localStorage.removeItem('guardian_p2p_connection');
+                MultiRelayBus.close();
                 this._dispatch('p2p:disconnected', {});
             },
 
@@ -3500,9 +3883,9 @@
                 var self = this;
                 var iceConfig = {
                     iceServers: window.RealTimeSync ? window.RealTimeSync.getIceServers() : [
-                        { urls: 'stun:stun.miwifi.com:3478' },
-                        { urls: 'stun:stun.chat.bilibili.com:3478' },
-                        { urls: 'stun:stun.hitv.com:3478' }
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun.miwifi.com:3478' }
                     ],
                     iceCandidatePoolSize: 10,
                     bundlePolicy: 'max-bundle',
@@ -3568,10 +3951,8 @@
                 if (!this.dc) return;
                 var self = this;
                 this.dc.onopen = function() {
-                    if (self.pc && (self.pc.iceConnectionState === 'connected' || self.pc.iceConnectionState === 'completed')) {
-                        if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
-                        if (self.onconnect) self.onconnect();
-                    }
+                    if (self._relayTimer) { clearTimeout(self._relayTimer); self._relayTimer = null; }
+                    if (self.onconnect) self.onconnect();
                 };
                 this.dc.onclose = function() {};
                 this.dc.onerror = function(err) { console.error('[DC] error:', err); };
@@ -3586,9 +3967,9 @@
                         resolve(); return;
                     }
                     var timer = setTimeout(function() {
-                        console.log('[ICE] 收集超时(10s), partial: host=' + (self._iceTypes ? self._iceTypes.host : 0) + ', srflx=' + (self._iceTypes ? self._iceTypes.srflx : 0) + ', relay=' + (self._iceTypes ? self._iceTypes.relay : 0));
+                        console.log('[ICE] 收集超时(12s), partial: host=' + (self._iceTypes ? self._iceTypes.host : 0) + ', srflx=' + (self._iceTypes ? self._iceTypes.srflx : 0) + ', relay=' + (self._iceTypes ? self._iceTypes.relay : 0));
                         resolve();
-                    }, 10000);
+                    }, 12000);
                     pc.onicegatheringstatechange = function() {
                         if (pc.iceGatheringState === 'complete') {
                             clearTimeout(timer);
@@ -3613,16 +3994,17 @@
                 this._socket = io(url, {
                     transports: ['websocket', 'polling'],
                     reconnection: true,
-                    reconnectionAttempts: Infinity,
+                    reconnectionAttempts: 10,
                     reconnectionDelay: 1000,
                     reconnectionDelayMax: 5000,
-                    timeout: 10000
+                    timeout: 15000
                 });
 
                 this._socket.on('connect', function() {
                     console.log('[SocketIO] 已连接, 加入房间 ' + code);
                     showToast('📡 Socket.IO已连接');
                     self._socket.emit('join_room', { code: code, role: isHost ? 'host' : 'client' });
+                    self._activateRelay();
                 });
 
                 this._socket.on('peer_joined', function() {
@@ -3647,7 +4029,7 @@
                     var c = data.candidate;
                     if (!self.pc) { self._iceCandidateQueue.push(c); return; }
                     if (self.pc.remoteDescription && self.pc.remoteDescription.type) {
-                        self.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+                        self.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(e) { console.warn('[SocketIO] addIceCandidate error:', e); });
                     } else {
                         self._iceCandidateQueue.push(c);
                     }
@@ -3670,17 +4052,11 @@
 
                 this._socket.on('connect_error', function(err) {
                     console.warn('[SocketIO] 连接错误:', err.message);
+                    showToast('⚠️ 服务器连接失败，正在重试...(' + (self._socket && self._socket._reconnections || 0) + '/' + 10 + ')');
                 });
 
                 console.log('[SocketIO] 启动信令, code=' + code + ', role=' + (isHost ? 'host' : 'client'));
                 showToast(isHost ? '🔄 等待对方连接...' : '🔄 正在连接...');
-                if (this._fallbackTimer) clearTimeout(this._fallbackTimer);
-                this._fallbackTimer = setTimeout(function() {
-                    if (!self._relayActive && !(window.RealTimeSync && window.RealTimeSync.isConnected)) {
-                        console.warn('[SocketIO] 后备超时(25s)，切换到中继模式');
-                        self._activateRelay();
-                    }
-                }, 25000);
             },
 
             async _startHost() {
@@ -3695,13 +4071,6 @@
                     if (this._socket && this._socket.connected) {
                         this._socket.emit('signal_offer', { code: this._roomId, sdp: pc.localDescription.sdp });
                     }
-                    if (this._relayTimer) clearTimeout(this._relayTimer);
-                    this._relayTimer = setTimeout(function() {
-                        if (self.pc && self.pc.iceConnectionState !== 'connected' && self.pc.iceConnectionState !== 'completed') {
-                            console.warn('[SocketIO] ICE超时(25s)，切换到中继模式');
-                            self._activateRelay();
-                        }
-                    }, 25000);
                 } catch(e) { console.error('[SocketIO] offer error:', e); }
             },
 
@@ -3717,13 +4086,6 @@
                     if (this._socket && this._socket.connected) {
                         this._socket.emit('signal_answer', { code: this._roomId, sdp: pc.localDescription.sdp });
                     }
-                    if (this._relayTimer) clearTimeout(this._relayTimer);
-                    this._relayTimer = setTimeout(function() {
-                        if (self.pc && self.pc.iceConnectionState !== 'connected' && self.pc.iceConnectionState !== 'completed') {
-                            console.warn('[SocketIO] ICE超时(25s)，切换到中继模式');
-                            self._activateRelay();
-                        }
-                    }, 25000);
                 } catch(e) { console.error('[SocketIO] answer error:', e); }
             },
 
@@ -3740,41 +4102,36 @@
                 var queue = this._iceCandidateQueue;
                 this._iceCandidateQueue = [];
                 queue.forEach(function(c) {
-                    if (this.pc) this.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+                    if (this.pc) this.pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(e) { console.warn('[SocketIO] flushIce error:', e); });
                 }, this);
             },
 
             _activateRelay() {
                 if (this._relayActive) { return; }
                 this._relayActive = true;
-                console.log('[SocketIO] 激活中继模式, pc=' + (this.pc ? 'exists' : 'null') + ', dc=' + (this.dc ? this.dc.readyState : 'null'));
+                console.log('[SocketIO] 激活中继模式(热备)');
                 if (this._relayTimer) { clearTimeout(this._relayTimer); this._relayTimer = null; }
-                if (this._fallbackTimer) { clearTimeout(this._fallbackTimer); this._fallbackTimer = null; }
-                if (this.pc) { try { this.pc.close(); } catch(e) {} this.pc = null; }
                 var self = this;
-                if (!self.dc || self.dc.readyState !== 'open') {
-                    self.dc = {
-                        readyState: 'open',
-                        send: function(data) {
-                            if (self._socket && self._socket.connected) {
-                                var msg = typeof data === 'string' ? data : JSON.stringify(data);
-                                self._socket.emit('relay_data', { code: self._roomId, payload: msg });
-                                return true;
-                            }
-                            return false;
-                        },
-                        close: function() { self._relayActive = false; }
-                    };
-                }
-                self._setupDC();
-                showToast('🔁 已切到中继模式');
-                try { if (self.onconnect) self.onconnect(); } catch(e) { console.error('[P2P] onconnect error:', e); }
-                showToast('⏳ isConnected=' + (window.RealTimeSync ? RealTimeSync.isConnected : 'NO_RT'));
-                if (window.RealTimeSync && !RealTimeSync.isConnected) {
-                    console.log('[P2P v3.0] 中继模式直接连接 RealTimeSync');
-                    showToast('🔌 正在建立P2P...');
-                    RealTimeSync._connectSig(self.dc);
-                }
+                self._relayDc = {
+                    readyState: 'open',
+                    send: function(data) {
+                        if (self._socket && self._socket.connected) {
+                            var msg = typeof data === 'string' ? data : JSON.stringify(data);
+                            self._socket.emit('relay_data', { code: self._roomId, payload: msg });
+                            return true;
+                        }
+                        return false;
+                    },
+                    close: function() { self._relayActive = false; }
+                };
+                showToast('🔁 已启用中继热备');
+                this._relayTimer = setTimeout(function() {
+                    if (window.RealTimeSync && !RealTimeSync.isConnected) {
+                        console.log('[P2P v4.3.5] WebRTC超时(15s)，中继降级接管');
+                        showToast('🔁 中继降级接管');
+                        RealTimeSync._connectSig(self._relayDc);
+                    }
+                }, 15000);
             },
 
             send(data) {
@@ -3801,47 +4158,158 @@
         var MqttSignaling = SocketIOSignaling;
         var mqttBrokerUrl = ''; // 废弃
 
+        // ========== 多对多中继总线（共享Socket.IO连接，同时加入多个配对房间）==========
+        const MultiRelayBus = {
+            _socket: null,
+            _roomList: [],
+            _relayTimer: null,
+            _wasConnected: false,
+
+            _getBaseUrl() {
+                return (window.RealTimeSync && RealTimeSync._pairServer) || 'https://guardian-sig-v2.up.railway.app';
+            },
+
+            _ensureConnection(callback) {
+                var self = this;
+                if (this._socket && this._socket.connected) {
+                    if (callback) callback();
+                    return;
+                }
+                if (this._socket) { this._socket.disconnect(); this._socket = null; }
+                var url = this._getBaseUrl();
+                this._socket = io(url, {
+                    transports: ['websocket', 'polling'],
+                    reconnection: true,
+                    reconnectionAttempts: Infinity,
+                    reconnectionDelay: 3000,
+                    reconnectionDelayMax: 10000,
+                    timeout: 10000
+                });
+                this._socket.on('connect', function() {
+                    console.log('[MultiRelay] 已连接, 重加入' + self._roomList.length + '个房间');
+                    for (var i = 0; i < self._roomList.length; i++) {
+                        self._socket.emit('join_room', { code: self._roomList[i].code, role: 'member' });
+                    }
+                    if (!self._wasConnected && self._roomList.length > 0) {
+                        showToast('✅ 配对连接已恢复');
+                    }
+                    self._wasConnected = true;
+                    if (callback) callback();
+                });
+                this._socket.on('relay_data', function(data) {
+                    if (window.RealTimeSync) {
+                        try { RealTimeSync._handleIncomingData(JSON.parse(data.payload)); } catch(e) {}
+                    }
+                });
+                this._socket.on('disconnect', function(reason) {
+                    console.warn('[MultiRelay] 断开: ' + reason);
+                    if (self._roomList.length > 0 && reason !== 'io client disconnect') {
+                        showToast('⚠️ 配对中继断开，正在重连...');
+                    }
+                });
+            },
+
+            joinRoom(code) {
+                var self = this;
+                if (this._roomList.some(function(r) { return r.code === code; })) return;
+                this._roomList.push({ code: code, joined: false });
+                if (this._socket && this._socket.connected) {
+                    this._socket.emit('join_room', { code: code, role: 'member' });
+                } else {
+                    this._ensureConnection(function() {
+                        self._socket.emit('join_room', { code: code, role: 'member' });
+                    });
+                }
+                console.log('[MultiRelay] 加入房间: ' + code);
+            },
+
+            leaveRoom(code) {
+                this._roomList = this._roomList.filter(function(r) { return r.code !== code; });
+                console.log('[MultiRelay] 离开房间: ' + code);
+            },
+
+            broadcast(data) {
+                if (!this._socket || !this._socket.connected) return false;
+                var msg = typeof data === 'string' ? data : JSON.stringify(data);
+                for (var i = 0; i < this._roomList.length; i++) {
+                    this._socket.emit('relay_data', { code: this._roomList[i].code, payload: msg });
+                }
+                return true;
+            },
+
+            close() {
+                if (this._socket) { this._socket.disconnect(); this._socket = null; }
+                this._roomList = [];
+                this._wasConnected = false;
+            }
+        };
+
         // 集成到RealTimeSync
         RealTimeSync._sigDc = null;
         RealTimeSync._useSig = false;
         RealTimeSync._connectSig = function(dc) {
-            if (this.isConnected) return;
+            var self = this;
+            var isWebrtc = (dc && dc.readyState === 'open' && dc.send && !dc._relayDc);
+            if (this.isConnected) {
+                if (isWebrtc) {
+                    console.log('[P2P v4.3.0] WebRTC已就绪，切换为主通道');
+                    this._sigDc = dc;
+                    dc.onmessage = function(e) { try { self._handleIncomingData(JSON.parse(e.data)); } catch(err) {} };
+                }
+                return;
+            }
             this._sigDc = dc; this._useSig = true;
             this._connecting = false;
-            var self = this;
             dc.onmessage = function(e) { try { self._handleIncomingData(JSON.parse(e.data)); } catch(err) {} };
-            dc.onclose = function() { self.isConnected = false; self._dispatch('p2p:disconnected', {}); };
-            // v3.0: Socket.IO relay_data 转发
+            dc.onclose = function() {
+                if (SocketIOSignaling._relayActive && SocketIOSignaling._relayDc && SocketIOSignaling._relayDc.readyState === 'open') {
+                    console.log('[P2P v4.3.0] WebRTC断开，中继热备接管');
+                    RealTimeSync._sigDc = SocketIOSignaling._relayDc;
+                    return;
+                }
+                self.isConnected = false;
+                self._dispatch('p2p:disconnected', {});
+            };
             SocketIOSignaling.ondata = function(data) {
                 if (RealTimeSync && RealTimeSync._sigDc && RealTimeSync._sigDc.onmessage) {
                     RealTimeSync._sigDc.onmessage({ data: data });
                 }
             };
             this.isConnected = true;
+            this._dualRelayActive = true;
             this._dispatch('p2p:connected', {});
             this._dispatch('p2p:networkStatus', { online: true });
+            this._persistConnection();
         };
         var _origSend3 = RealTimeSync._send;
         RealTimeSync._send = function(data) {
-                if (this._useSig && this._sigDc) {
-                    if (this._sigDc.readyState === 'open') {
-                        try {
-                            var msg = typeof data === 'string' ? data : JSON.stringify(data);
-                            this._sigDc.send(msg);
-                            return;
-                        } catch(e) {
-                            console.warn('[P2P] _sigDc.send 失败:', e);
-                        }
-                    }
-                    if (MqttSignaling.send(data)) return;
+                if (!data) return;
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch(e) { return; } }
+                this._msgSeq = (this._msgSeq || 0) + 1;
+                data._msgSeq = this._msgSeq;
+                data.from = data.from || this.deviceId;
+                var msg = JSON.stringify(data);
+                var sent = false;
+                if (this._useSig && this._sigDc && this._sigDc.readyState === 'open') {
+                    try { this._sigDc.send(msg); sent = true; } catch(e) { console.warn('[P2P] _sigDc.send 失败:', e); }
                 }
-                _origSend3.call(this, data);
+                if (SocketIOSignaling._relayActive && SocketIOSignaling._relayDc && SocketIOSignaling._relayDc.readyState === 'open') {
+                    try { SocketIOSignaling._relayDc.send(msg); sent = true; } catch(e) { console.warn('[P2P] relayDc.send 失败:', e); }
+                }
+                if (MqttSignaling && MqttSignaling.send && MqttSignaling.send(data)) { sent = true; }
+                if (!sent) {
+                    this._offlineQueue = this._offlineQueue || [];
+                    this._offlineQueue.push(data);
+                    if (this._offlineQueue.length > 100) this._offlineQueue.shift();
+                    try { localStorage.setItem('guardian_offline_queue', JSON.stringify(this._offlineQueue)); } catch(e) { console.warn('[P2P] offline queue persist error:', e); }
+                    if (_origSend3) { _origSend3.call(this, data); }
+                }
             };
         var _origDisconnect3 = RealTimeSync.disconnect;
         RealTimeSync.disconnect = function() {
             this._stopHeartbeat();
             if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-            if (this._useSig && this._sigDc) { try { MqttSignaling.close(); } catch(e) {} this._sigDc = null; this._useSig = false; }
+            if (this._useSig && this._sigDc) { try { MqttSignaling.close(); } catch(e) { console.warn('[P2P] MqttSignaling.close error:', e); } this._sigDc = null; this._useSig = false; }
             this.isConnected = false; this.authCode = null; this.authCodeExpiry = null;
             localStorage.removeItem('guardian_p2p_connection');
             this._dispatch('p2p:disconnected', {});
@@ -3849,9 +4317,27 @@
         // ========== 数据持久化服务 ==========
         const DataStore = {
             _cache: {},
+            _debounceTimers: {},
             
             save(key, value) {
                 this._cache[key] = value;
+                if (this._debounceTimers[key]) {
+                    clearTimeout(this._debounceTimers[key]);
+                }
+                this._debounceTimers[key] = setTimeout(function() {
+                    try {
+                        localStorage.setItem('guardian_' + key, JSON.stringify(value));
+                    } catch(e) { console.warn('Storage save failed:', e); }
+                    delete DataStore._debounceTimers[key];
+                }, 300);
+            },
+            
+            saveImmediate(key, value) {
+                this._cache[key] = value;
+                if (this._debounceTimers[key]) {
+                    clearTimeout(this._debounceTimers[key]);
+                    delete this._debounceTimers[key];
+                }
                 try {
                     localStorage.setItem('guardian_' + key, JSON.stringify(value));
                 } catch(e) { console.warn('Storage save failed:', e); }
@@ -3871,7 +4357,11 @@
             
             remove(key) {
                 delete this._cache[key];
-                try { localStorage.removeItem('guardian_' + key); } catch(e) {}
+                if (this._debounceTimers[key]) {
+                    clearTimeout(this._debounceTimers[key]);
+                    delete this._debounceTimers[key];
+                }
+                try { localStorage.removeItem('guardian_' + key); } catch(e) { console.warn('Storage remove failed:', e); }
             },
             
             clear() {
@@ -3894,25 +4384,177 @@
                 return result === 'granted';
             },
             
-            async requestLocationPermission() {
-                return new Promise((resolve) => {
-                    if (!navigator.geolocation) { resolve(false); return; }
-                    navigator.geolocation.getCurrentPosition(
-                        () => resolve(true),
-                        (err) => {
-                            if (err.code === err.PERMISSION_DENIED) resolve(false);
-                            else resolve(false);
-                        },
-                        { timeout: 5000 }
+            _checkLocationGranted() {
+                return new Promise(function(resolve) {
+                    // 先检查cordova是否可用
+                    if (typeof cordova === 'undefined' || !cordova.plugins || !cordova.plugins.permissions) {
+                        console.log('[Perm] Cordova not ready, assuming not granted');
+                        resolve(false);
+                        return;
+                    }
+                    // 加入5秒超时，防止回调永不触发导致死等（Cordova Android 15 已知问题）
+                    var _to = setTimeout(function() {
+                        console.warn('[Perm] checkPermission timed out');
+                        resolve(false);
+                    }, 5000);
+                    cordova.plugins.permissions.checkPermission(
+                        cordova.plugins.permissions.ACCESS_FINE_LOCATION,
+                        function(s) { clearTimeout(_to); resolve(s.hasPermission); },
+                        function() { clearTimeout(_to); resolve(false); }
                     );
                 });
             },
+
+            async requestLocationPermission() {
+                if (typeof cordova !== 'undefined' && cordova.plugins && cordova.plugins.permissions) {
+                    console.log('[Perm] Using native permission API');
+                    var already = await this._checkLocationGranted();
+                    if (already) { console.log('[Perm] already granted'); return true; }
+                    cordova.plugins.permissions.requestPermission(
+                        cordova.plugins.permissions.ACCESS_FINE_LOCATION,
+                        function(){}, function(){}
+                    );
+                    // 缩短轮询超时到15秒，避免界面卡死
+                    var deadline = Date.now() + 15000;
+                    while (Date.now() < deadline) {
+                        await new Promise(function(r) { setTimeout(r, 500); });
+                        var granted = await this._checkLocationGranted();
+                        if (granted) { console.log('[Perm] granted via polling'); return true; }
+                    }
+                    console.log('[Perm] polling timeout - permission not granted');
+                    return false;
+                }
+                console.log('[Perm] Falling back to browser API');
+                if (!navigator.geolocation) { console.log('[Perm] geolocation API not available'); return false; }
+                try {
+                    if (navigator.permissions && navigator.permissions.query) {
+                        var permState = await navigator.permissions.query({ name: 'geolocation' });
+                        console.log('[Perm] geolocation state:', permState.state);
+                        if (permState.state === 'granted') return true;
+                        if (permState.state === 'denied') { console.log('[Perm] geolocation already denied'); return false; }
+                    }
+                } catch(e) { console.log('[Perm] permissions.query error:', e); }
+                return new Promise(function(resolve) {
+                    var _t = setTimeout(function() { console.log('[Perm] browser getCurrentPosition timeout'); resolve(false); }, 30000);
+                    navigator.geolocation.getCurrentPosition(
+                        function(pos) { console.log('[Perm] geolocation success'); clearTimeout(_t); resolve(true); },
+                        function(err) { console.log('[Perm] geolocation error:', err.code, err.message); clearTimeout(_t); resolve(false); },
+                        { enableHighAccuracy: false, timeout: 25000, maximumAge: 120000 }
+                    );
+                });
+            },
+
+            _withTimeout(promise, ms, fallback) {
+                return Promise.race([
+                    promise,
+                    new Promise(function(r){ setTimeout(function(){ r(fallback); }, ms); })
+                ]);
+            },
             
             async requestAllPermissions() {
-                const results = {};
-                results.notification = await this.requestNotificationPermission();
-                results.location = await this.requestLocationPermission();
+                var self = this;
+                var results = {};
+                // 每个权限都有独立超时，整体不超过 10 秒
+                results.notification = await self._withTimeout(self.requestNotificationPermission(), 2000, false);
+                results.location = await self._withTimeout(self.requestLocationPermission(), 8000, false);
+                results.background = await self._withTimeout(self.requestBackgroundPermission(), 2000, false);
+                results.camera = false;
+                results.audio = false;
                 return results;
+            },
+            
+            async requestBackgroundPermission() {
+                // Android后台运行权限 - REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                if (typeof cordova !== 'undefined' && cordova.plugins && cordova.plugins.permissions) {
+                    var permissions = cordova.plugins.permissions;
+                    // 尝试申请后台位置权限
+                    return new Promise(function(resolve) {
+                        // Android 10+ 需要 ACCESS_BACKGROUND_LOCATION
+                        if (permissions.ACCESS_BACKGROUND_LOCATION) {
+                            permissions.requestPermission(permissions.ACCESS_BACKGROUND_LOCATION, function(status) {
+                                if (status.hasPermission) {
+                                    console.log('[Perm] Background location permission granted');
+                                    resolve(true);
+                                } else {
+                                    // 即使后台权限被拒绝，也尝试其他方式
+                                    console.log('[Perm] Background location permission denied, trying alternatives');
+                                    resolve(false);
+                                }
+                            }, function() {
+                                resolve(false);
+                            });
+                        } else {
+                            // 如果没有后台位置权限，尝试请求电池优化豁免
+                            resolve(false);
+                        }
+                    });
+                }
+                return Promise.resolve(false);
+            },
+
+            showPermissionPrompt() {
+                // 权限弹窗已在静态 HTML 中，只需确保按钮处理器正确
+                console.log('[Perm] showPermissionPrompt called (re-binding handlers)');
+                var existing = document.getElementById('permissionPrompt');
+                if (!existing) {
+                    // 静态HTML不存在时的兜底 - 动态创建
+                    console.log('[Perm] Static prompt not found, creating dynamically');
+                    var msg = document.createElement('div');
+                    msg.id = 'permissionPrompt';
+                    msg.style.cssText = 'display:flex;position:fixed;top:0;left:0;right:0;bottom:0;z-index:100001;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;';
+                    msg.innerHTML = '<div style="background:white;border-radius:24px;padding:30px 20px;max-width:360px;width:88%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:fadeInUp 0.3s ease;">' +
+                        '<div style="font-size:48px;margin-bottom:15px;">🛡️</div>' +
+                        '<div style="font-size:20px;font-weight:700;color:#111827;margin-bottom:8px;">权限申请</div>' +
+                        '<div style="font-size:14px;color:#6B7280;margin-bottom:20px;line-height:1.5;">为了让守护者App正常工作，请允许以下权限：</div>' +
+                        '<div id="permList" style="text-align:left;margin-bottom:20px;padding:0 5px;">' +
+                        '<div id="perm-location" style="padding:8px 0;font-size:14px;color:#6B7280;">📍 定位权限 — 用于位置守护</div>' +
+                        '<div id="perm-background" style="padding:8px 0;font-size:14px;color:#6B7280;">🔋 后台运行权限 — 确保位置实时守护</div>' +
+                        '<div id="perm-notification" style="padding:8px 0;font-size:14px;color:#6B7280;">🔔 通知权限 — 用于任务提醒</div>' +
+                        '<div id="perm-camera" style="padding:8px 0;font-size:14px;color:#6B7280;">📷 相机权限 — 使用相机时自动申请</div>' +
+                        '<div id="perm-audio" style="padding:8px 0;font-size:14px;color:#6B7280;">🎤 录音权限 — 使用录音时自动申请</div>' +
+                        '</div>' +
+                        '<button id="permGrantBtn" style="width:100%;padding:14px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;border-radius:14px;font-size:16px;font-weight:600;cursor:pointer;">一键授权</button>' +
+                        '<div style="margin-top:8px;"><button id="permSkipBtn" style="background:none;border:none;color:#9CA3AF;font-size:13px;cursor:pointer;padding:8px;">跳过，稍后设置</button></div>' +
+                        '</div>';
+                    document.body.appendChild(msg);
+                    console.log('[Perm] Dynamic prompt added to DOM');
+                } else {
+                    existing.style.display = 'flex';
+                }
+                // 绑定按钮处理器（复用 _execPermRequest）
+                var gb = document.getElementById('permGrantBtn');
+                if (gb) {
+                    gb._earlyBound = true; // 标记已绑定
+                    gb.onclick = function() {
+                        var btn = document.getElementById('permGrantBtn');
+                        if (btn.disabled) return;
+                        if (typeof window._execPermRequest === 'function') {
+                            window._execPermRequest(btn);
+                        } else {
+                            // 兜底：直接调用
+                            btn.textContent = '⏳ 授权中...';
+                            btn.disabled = true;
+                            PermissionManager.requestAllPermissions().then(function(r) {
+                                btn.textContent = '✅ 完成';
+                                btn.disabled = false;
+                                setTimeout(function() {
+                                    var p = document.getElementById('permissionPrompt');
+                                    if (p) p.style.display = 'none';
+                                }, 1500);
+                            }).catch(function() {
+                                btn.textContent = '继续';
+                                btn.disabled = false;
+                            });
+                        }
+                    };
+                }
+                var sb = document.getElementById('permSkipBtn');
+                if (sb) {
+                    sb._earlyBound = true;
+                    sb.onclick = function() {
+                        document.getElementById('permissionPrompt').style.display = 'none';
+                    };
+                }
             },
             
             async sendLocalNotification(title, body, data) {
@@ -3936,6 +4578,9 @@
                 return false;
             }
         };
+        
+        // 暴露PermissionManager到全局作用域
+        window.PermissionManager = PermissionManager;
 
         // ========== 角色选择与身份管理 ==========
         
@@ -3975,6 +4620,11 @@
                     var recipientNames = Object.keys(recipientTasksData);
                     if (recipientNames.length > 0) {
                         currentRecipientView = recipientNames[0];
+                    } else if (RealTimeSync && RealTimeSync.deviceId) {
+                        currentRecipientView = RealTimeSync.deviceId;
+                    }
+                    if (!currentTaskRecipient && currentRecipientView) {
+                        currentTaskRecipient = currentRecipientView;
                     }
                 }
                 
@@ -4197,7 +4847,7 @@ function doChangeRole(newRole) {
                 var container = targetScreen || document;
                 var currentPage = container.querySelector('.app-page.active');
                 
-                if (currentPage && targetPage) {
+                if (currentPage && currentPage !== targetPage) {
                     currentPage.classList.add('slide-out-left');
                     currentPage.classList.remove('active');
                     
@@ -4233,6 +4883,14 @@ function doChangeRole(newRole) {
                             if (typeof showServerConfig === 'function') showServerConfig();
                         }
                     }, 50);
+                } else {
+                    targetPage.classList.add('active');
+                    if (pageId === 'guardian-pairings' || pageId === 'recipient-pairings') {
+                        if (typeof updateP2PStatus === 'function') updateP2PStatus();
+                    }
+                    if (pageId === 'guardian-server-config') {
+                        if (typeof showServerConfig === 'function') showServerConfig();
+                    }
                 }
             } catch(e) {
                 console.error('navigateTo error:', e);
@@ -4596,9 +5254,14 @@ function doChangeRole(newRole) {
                 
                 var healthTypes = matchHealthTypes(taskName);
                 if (healthTypes.length > 0 && !isReadOnlyRole()) {
-                    setTimeout(function() {
-                        openHealthInput(taskName);
-                    }, 800);
+                    // 排除"服用"类任务（如服用降压药）不需要数据输入
+                    if (healthTypes.length === 1 && (taskName.includes('服用') || taskName.includes('口服'))) {
+                        showToast('✅ 任务完成');
+                    } else {
+                        setTimeout(function() {
+                            openHealthInput(taskName);
+                        }, 800);
+                    }
                 }
             }
         }
@@ -4744,6 +5407,14 @@ function doChangeRole(newRole) {
             const day = String(date.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
         }
+
+        function formatTime(date) {
+            return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        }
+
+        function getCurrentTime() {
+            return new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        }
         
         // 加载被监护人端日历任务列表
         function loadRecipientCalendarTasks(selectedDate) {
@@ -4831,6 +5502,9 @@ function doChangeRole(newRole) {
         
         // 打开被监护人端添加任务弹窗
         function openRecipientAddTask() {
+            if (!currentTaskRecipient && currentRecipientView) {
+                currentTaskRecipient = currentRecipientView;
+            }
             // 重置表单
             document.getElementById('recipientCustomTaskName').value = '';
             document.getElementById('recipientCustomTaskTime').value = '08:00';
@@ -4923,10 +5597,11 @@ function doChangeRole(newRole) {
                 return;
             }
 
-            if (!currentTaskRecipient) {
+            if (!currentTaskRecipient && !currentRecipientView) {
                 showToast('❌ 请先在首页选择被监护人');
                 return;
             }
+            var targetRecipient = currentTaskRecipient || currentRecipientView;
 
             const repeatLabels = {
                 'daily': '📅 每日',
@@ -4947,7 +5622,7 @@ function doChangeRole(newRole) {
             };
             
             // 添加到当前被监护人
-            addTaskToRecipient(currentRecipientView, newTask);
+            addTaskToRecipient(targetRecipient, newTask);
             
             // 刷新日历任务列表
             loadRecipientCalendarTasks(recipientSelectedDate);
@@ -5173,7 +5848,7 @@ function doChangeRole(newRole) {
         }
         
         // 每60秒检查一次任务状态
-        setInterval(checkOverdueTasks, 60000);
+        window._overdueTaskTimer = setInterval(checkOverdueTasks, 60000);
 
         // ========== 心情记录功能 ==========
         
@@ -5395,6 +6070,21 @@ function doChangeRole(newRole) {
         let recipientSelectedMoodEmoji = '😊';
         let recipientMoodImages = [];
         
+        // 触发被监护人端心情图片文件选择 (兼容Cordova WebView)
+        function triggerRecipientMoodFileInput() {
+            var input = document.getElementById('recipientMoodImageInput');
+            if (!input) return;
+            var saved = input.style.cssText;
+            input.style.cssText = 'position:fixed!important;left:0!important;top:0!important;width:100%!important;height:100%!important;opacity:0!important;z-index:99998!important;pointer-events:auto!important;';
+            input.focus();
+            setTimeout(function() {
+                try { input.click(); } catch(e) { console.warn('file input click:', e); }
+                setTimeout(function() {
+                    input.style.cssText = saved;
+                }, 2000);
+            }, 100);
+        }
+
         // 打开被监护人端心情输入
         function openRecipientMoodInput() {
             recipientSelectedMoodEmoji = '😊';
@@ -5403,7 +6093,7 @@ function doChangeRole(newRole) {
             // 重置表单
             document.getElementById('recipientMoodTextInput').value = '';
             document.getElementById('recipientMoodImagePreview').innerHTML = `
-                <div onclick="document.getElementById('recipientMoodImageInput').click()" 
+                <div onclick="triggerRecipientMoodFileInput()" 
                      style="width: 80px; height: 80px; border: 2px dashed #E0E0E0; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; color: #95A5A6;">
                     📷
                 </div>
@@ -5645,13 +6335,20 @@ function doChangeRole(newRole) {
             if (!gSelect || !rSelect) return;
             
             gSelect.innerHTML = '<option value="">选择监护人</option>';
-            guardiansData.forEach(g => {
-                gSelect.innerHTML += `<option value="${g.id}">${g.avatar} ${g.name}（${g.role === 'guardian' ? '监护人' : '观察者'}）</option>`;
+            var gDoc = gSelect.ownerDocument;
+            guardiansData.forEach(function(g) {
+                var opt = gDoc.createElement('option');
+                opt.value = g.id;
+                opt.textContent = g.avatar + ' ' + g.name + '（' + (g.role === 'guardian' ? '监护人' : '观察者') + '）';
+                gSelect.appendChild(opt);
             });
             
             rSelect.innerHTML = '<option value="">选择被监护人</option>';
-            recipientsData.forEach(r => {
-                rSelect.innerHTML += `<option value="${r.id}">${r.icon} ${r.name}</option>`;
+            recipientsData.forEach(function(r) {
+                var opt = gDoc.createElement('option');
+                opt.value = r.id;
+                opt.textContent = r.icon + ' ' + r.name;
+                rSelect.appendChild(opt);
             });
         }
         
@@ -6311,10 +7008,11 @@ function doChangeRole(newRole) {
 
         // 添加预定义任务
         function addPresetTask(icon, name, time) {
-            if (!currentTaskRecipient) {
+            if (!currentTaskRecipient && !currentRecipientView) {
                 showToast('❌ 请先在首页选择被监护人');
                 return;
             }
+            var targetRecipient = currentTaskRecipient || currentRecipientView;
             // 创建任务对象
             const newTask = {
                 id: Date.now(),
@@ -6327,7 +7025,7 @@ function doChangeRole(newRole) {
             };
             
             // 添加到当前选中的被监护人数据中
-            addTaskToRecipient(currentTaskRecipient, newTask);
+            addTaskToRecipient(targetRecipient, newTask);
             
             // 更新配置任务列表显示
             const taskList = document.getElementById('configuredTasksList');
@@ -6400,13 +7098,14 @@ function doChangeRole(newRole) {
             
             container.innerHTML = '';
             
-            if (!currentTaskRecipient) {
+            if (!currentTaskRecipient && !currentRecipientView) {
                 container.innerHTML = '<div style="text-align:center;padding:20px;color:#95A5A6;">请先在首页选择被监护人</div>';
                 return;
             }
+            var targetRecipient2 = currentTaskRecipient || currentRecipientView;
             
             // 根据被监护人类型选择任务模板
-            const recipientType = getRecipientTypeCode(currentTaskRecipient);
+            const recipientType = getRecipientTypeCode(targetRecipient2);
             const tasks = recipientType === 'child' ? childPresetTasks : elderPresetTasks;
             
             tasks.forEach(task => {
@@ -6428,13 +7127,14 @@ function doChangeRole(newRole) {
             
             container.innerHTML = '';
             
-            if (!currentTaskRecipient) {
+            if (!currentTaskRecipient && !currentRecipientView) {
                 container.innerHTML = '<div style="text-align:center;padding:20px;color:#95A5A6;">请先在首页选择被监护人</div>';
                 return;
             }
+            var targetRecipient3 = currentTaskRecipient || currentRecipientView;
             
-            // 根据当前任务配置的被监护人选择任务模板（使用 currentTaskRecipient 而非 currentSelectedRecipient）
-            const recipientType = getRecipientTypeCode(currentTaskRecipient);
+            // 根据当前任务配置的被监护人选择任务模板
+            const recipientType = getRecipientTypeCode(targetRecipient3);
             const tasks = recipientType === 'child' ? childPresetTasks : elderPresetTasks;
             
             tasks.forEach(task => {
@@ -6585,8 +7285,34 @@ function doChangeRole(newRole) {
                 currentSelectedRecipient = name;
                 currentTaskRecipient = name;
                 currentCalendarRecipient = name;
-                
+
                 showToast(`✅ 已添加被监护人: ${name}`);
+
+                // 自动发起配对：仅当设备尚未配对时才生成配对码
+                var _pairServer = (window.RealTimeSync && RealTimeSync._pairServer) || 'https://guardian-sig-v2.up.railway.app';
+                var _needPair = true;
+                if (window.RealTimeSync) {
+                    if (RealTimeSync.isConnected) {
+                        _needPair = false;
+                    } else if (RealTimeSync._pairedRooms && Object.keys(RealTimeSync._pairedRooms).length > 0) {
+                        _needPair = false;
+                    }
+                }
+                if (_needPair) {
+                    fetch(_pairServer + '/pair', { method: 'POST' })
+                        .then(function(r){ return r.json(); })
+                        .then(function(data){
+                            if (!data || !data.code) return;
+                            var code = data.code;
+                            if (window.RealTimeSync && RealTimeSync.addPairedRecipient) {
+                                RealTimeSync.addPairedRecipient(code, name);
+                            }
+                            showPairingCodeOverlay(name, code);
+                        })
+                        .catch(function(e){
+                            console.warn('[Pairing] 自动配对码生成失败:', e.message);
+                        });
+                }
             }
             
             // 保存头像数据
@@ -6636,6 +7362,53 @@ function doChangeRole(newRole) {
                     navigateTo('guardian-home');
                 }
             }, 100);
+        }
+
+        // ========== 配对码弹窗（自动配对引导）==========
+        function showPairingCodeOverlay(name, code) {
+            var existing = document.getElementById('pairingCodeOverlay');
+            if (existing) existing.remove();
+            var overlay = document.createElement('div');
+            overlay.id = 'pairingCodeOverlay';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:100002;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;';
+            overlay.innerHTML = '<div style="background:white;border-radius:24px;padding:30px 20px;max-width:380px;width:88%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:fadeInUp 0.3s ease;">' +
+                '<div style="font-size:48px;margin-bottom:10px;">🔗</div>' +
+                '<div style="font-size:20px;font-weight:700;color:#111827;margin-bottom:4px;">配对 ' + name + '</div>' +
+                '<div style="font-size:14px;color:#6B7280;margin-bottom:16px;">请在另一台设备输入以下配对码完成连接</div>' +
+                '<div id="pairingCodeDisplay" style="font-size:42px;font-weight:800;letter-spacing:10px;color:#3498DB;background:#EBF5FB;border-radius:16px;padding:16px 8px;margin-bottom:12px;font-family:monospace;">' + code + '</div>' +
+                '<div id="pairingStatusText" style="font-size:14px;color:#9CA3AF;margin-bottom:20px;">⏳ 等待对方连接...</div>' +
+                '<button id="pairingCloseBtn" style="width:100%;padding:12px;background:#E5E7EB;color:#374151;border:none;border-radius:12px;font-size:15px;cursor:pointer;">稍后设置</button>' +
+                '</div>';
+            document.body.appendChild(overlay);
+
+            var statusEl = document.getElementById('pairingStatusText');
+            var closed = false;
+            var closeOverlay = function() {
+                if (closed) return;
+                closed = true;
+                clearInterval(pairPollTimer);
+                clearTimeout(pairAutoCloseTimer);
+                var el = document.getElementById('pairingCodeOverlay');
+                if (el) el.remove();
+            };
+
+            document.getElementById('pairingCloseBtn').onclick = closeOverlay;
+
+            var pairPollTimer = setInterval(function() {
+                if (closed) return;
+                if (window.MultiRelayBus && MultiRelayBus._socket && MultiRelayBus._socket.connected) {
+                    var inRoom = MultiRelayBus._roomList.some(function(r){ return r.code === code; });
+                    if (inRoom) {
+                        if (statusEl) {
+                            statusEl.textContent = '✅ 配对成功！';
+                            statusEl.style.color = '#10B981';
+                        }
+                        setTimeout(closeOverlay, 2000);
+                    }
+                }
+            }, 2000);
+
+            var pairAutoCloseTimer = setTimeout(closeOverlay, 60000);
         }
 
         // ========== 首页标签模式相关函数 ==========
@@ -7656,25 +8429,77 @@ function doChangeRole(newRole) {
 
         // ========== P2P配对UI处理函数 ==========
 
-        function handleGenerateAuthCode() {
-            function doGenerate() {
-                var result = RealTimeSync.generateAuthCode();
-                var display = document.getElementById('authCodeDisplay');
-                var value = document.getElementById('authCodeValue');
-                var expiry = document.getElementById('authCodeExpiry');
-                var btn = document.getElementById('generateCodeBtn');
-                if (display) display.style.display = 'block';
-                if (value) value.textContent = result.code;
-                if (btn) { btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
-                updateP2PStatus();
-                updateAuthCodeExpiry();
+        async function handleGenerateAuthCode() {
+            console.log('[UI] handleGenerateAuthCode CALLED');
+            var btn = document.getElementById('generateCodeBtn');
+            var display = document.getElementById('authCodeDisplay');
+            var value = document.getElementById('authCodeValue');
+            
+            if (!btn) {
+                console.error('[UI] generateCodeBtn NOT FOUND');
+                showToast('❌ 按钮未找到');
+                return;
             }
-            if (RealTimeSync._railwayHealthy) { doGenerate(); return; }
-            showToast('📡 检测服务器连接...');
-            RealTimeSync._checkRailwayConnection(function(ok) {
-                if (!ok) { showToast('❌ 服务器无法连接，请检查网络'); return; }
-                doGenerate();
-            });
+            if (btn.disabled) {
+                console.log('[UI] generateCodeBtn is disabled, skipping');
+                return;
+            }
+            
+            // 预检测服务器连接状态
+            if (!RealTimeSync._railwayHealthy) {
+                showToast('📡 检测服务器连接...');
+                try {
+                    var healthy = await new Promise(function(resolve) {
+                        RealTimeSync._checkRailwayConnection(resolve);
+                    });
+                    if (!healthy) {
+                        showToast('❌ 服务器无法连接，请检查网络');
+                        return;
+                    }
+                } catch(e) {
+                    console.error('[UI] Server health check failed:', e);
+                    showToast('❌ 服务器检测失败，请稍后重试');
+                    return;
+                }
+            }
+            
+            console.log('[UI] Disabling button and starting generation');
+            btn.disabled = true;
+            btn.textContent = '⏳ 生成中...';
+            if (display) display.style.display = 'block';
+            if (value) value.textContent = '⏳ 获取中...';
+            
+            try {
+                // 调用generateAuthCode，等待Promise完成（带15s超时）
+                console.log('[UI] Calling RealTimeSync.generateAuthCode()');
+                var result = await Promise.race([
+                    RealTimeSync.generateAuthCode(),
+                    new Promise(function(_, reject) {
+                        setTimeout(function() { reject(new Error('生成超时，请重试')); }, 15000);
+                    })
+                ]);
+                console.log('[UI] generateAuthCode returned:', result);
+                
+                if (result && result.code) {
+                    if (value) value.textContent = result.code;
+                    btn.textContent = '重新生成';
+                    btn.style.background = '#7F8C8D';
+                    updateP2PStatus();
+                    updateAuthCodeExpiry();
+                }
+            } catch(e) {
+                console.error('[UI] handleGenerateAuthCode ERROR:', e);
+                showToast('❌ 生成失败: ' + (e.message || '请重试'));
+                if (display) display.style.display = 'none';
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    if (btn.textContent === '⏳ 生成中...') {
+                        btn.textContent = '生成授权码';
+                        btn.style.background = '#4F46E5';
+                    }
+                }
+            }
         }
 
         var authCodeExpiryTimer = null;
@@ -7696,18 +8521,28 @@ function doChangeRole(newRole) {
             }, 1000);
         }
 
-        function handleConnectWithCode() {
+        async function handleConnectWithCode() {
             function doConnect() {
-                var input = document.getElementById('inputAuthCode');
-                if (!input) return;
-                var code = input.value.trim();
-                if (code.length !== 6) {
-                    showToast('❌ 请输入6位授权码');
-                    return;
+                try {
+                    var input = document.getElementById('inputAuthCode');
+                    if (!input) return;
+                    var code = input.value.trim();
+                    if (code.length !== 6) {
+                        showToast('❌ 请输入6位授权码');
+                        return;
+                    }
+                    showToast('🔄 正在连接...');
+                    RealTimeSync.connectWithCode(code).then(function() {
+                        updateP2PStatus();
+                    }).catch(function(e) {
+                        console.error('connectWithCode error:', e);
+                        showToast('❌ 连接失败: ' + (e.message || '请重试'));
+                        updateP2PStatus();
+                    });
+                } catch(e) {
+                    console.error('handleConnectWithCode error:', e);
+                    showToast('❌ 连接失败: ' + e.message);
                 }
-                showToast('🔄 正在连接...');
-                RealTimeSync.connectWithCode(code);
-                updateP2PStatus();
             }
             if (RealTimeSync._railwayHealthy) { doConnect(); return; }
             showToast('📡 检测服务器连接...');
@@ -7717,18 +8552,28 @@ function doChangeRole(newRole) {
             });
         }
 
-        function recipientConnectWithCode() {
+        async function recipientConnectWithCode() {
             function doConnect() {
-                var input = document.getElementById('recipientInputAuthCode');
-                if (!input) return;
-                var code = input.value.trim();
-                if (code.length !== 6) {
-                    showToast('❌ 请输入6位授权码');
-                    return;
+                try {
+                    var input = document.getElementById('recipientInputAuthCode');
+                    if (!input) return;
+                    var code = input.value.trim();
+                    if (code.length !== 6) {
+                        showToast('❌ 请输入6位授权码');
+                        return;
+                    }
+                    showToast('🔄 正在连接...');
+                    RealTimeSync.connectWithCode(code).then(function() {
+                        updateP2PStatus();
+                    }).catch(function(e) {
+                        console.error('recipientConnectWithCode error:', e);
+                        showToast('❌ 连接失败: ' + (e.message || '请重试'));
+                        updateP2PStatus();
+                    });
+                } catch(e) {
+                    console.error('recipientConnectWithCode error:', e);
+                    showToast('❌ 连接失败: ' + e.message);
                 }
-                showToast('🔄 正在连接...');
-                RealTimeSync.connectWithCode(code);
-                updateP2PStatus();
             }
             if (RealTimeSync._railwayHealthy) { doConnect(); return; }
             showToast('📡 检测服务器连接...');
@@ -7945,6 +8790,27 @@ function doChangeRole(newRole) {
                 if (value) value.textContent = data.code;
                 updateP2PStatus();
                 updateAuthCodeExpiry();
+                var btn = document.getElementById('generateCodeBtn');
+                if (btn) { btn.disabled = false; btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
+            });
+
+            RealTimeSync.on('p2p:previousConnection', function(data) {
+                console.log('[UI] 发现已保存的配对信息, 自动重连');
+                if (!data || !data.authCode) return;
+                if (RealTimeSync.isConnected) return;
+                if (data.expiresAt && Date.now() > data.expiresAt) {
+                    console.log('[UI] 配对码已过期, 跳过自动重连');
+                    return;
+                }
+                RealTimeSync.authCode = data.authCode;
+                if (data.isHost) {
+                    RealTimeSync.isHost = true;
+                    RealTimeSync._enterRelaySignaling('host', data.authCode);
+                } else {
+                    RealTimeSync.isHost = false;
+                    RealTimeSync._enterRelaySignaling('client', data.authCode);
+                }
+                showToast('🔄 正在恢复上次连接...');
             });
 
             RealTimeSync.on('p2p:connected', function(data) {
@@ -7964,6 +8830,15 @@ function doChangeRole(newRole) {
                         }, 1200);
                     } else {
                         setTimeout(function() {
+                            if (typeof autoCreatePairing === 'function') {
+                                autoCreatePairing({ isHost: false });
+                            }
+                            var myId = RealTimeSync.deviceId;
+                            if (myId) {
+                                currentRecipientView = myId;
+                                currentTaskRecipient = myId;
+                                DataStore.save('currentRecipientView', myId);
+                            }
                             if (typeof navigateTo === 'function') {
                                 navigateTo('recipient-home');
                             }
@@ -7984,9 +8859,69 @@ function doChangeRole(newRole) {
 
             RealTimeSync.on('p2p:disconnected', function() {
                 console.log('[UI] P2P disconnected');
-                showToast('📡 P2P连接已断开');
+                showToast('⚠️ 连接已断开');
                 updateP2PStatus();
+                var overlay = document.getElementById('reconnectOverlay');
+                if (overlay) overlay.style.display = 'block';
+                setTimeout(function() {
+                    if (window.RealTimeSync && window.RealTimeSync.authCode) {
+                        window.RealTimeSync._enterRelaySignaling('client', window.RealTimeSync.authCode);
+                    }
+                }, 3000);
             });
+
+            RealTimeSync.on('p2p:connected', function() {
+            var overlay = document.getElementById('reconnectOverlay');
+            if (overlay) overlay.style.display = 'none';
+            hideReconnectPairOverlay();
+            RealTimeSync._flushingOffline = true;
+            try {
+                var queue = JSON.parse(localStorage.getItem('guardian_offline_queue') || '[]');
+                if (queue.length > 0) {
+                    console.log('[P2P v4.3.0] 发送离线队列:', queue.length + '条');
+                    queue.forEach(function(item) { RealTimeSync._send(item); });
+                    localStorage.removeItem('guardian_offline_queue');
+                }
+            } catch(e) {}
+            RealTimeSync._flushingOffline = false;
+            RealTimeSync._offlineQueue = [];
+        });
+
+            function manualReconnect() {
+                var st = document.getElementById('reconnectStatus');
+                if (st) st.textContent = '正在重连...';
+                if (window.RealTimeSync && window.RealTimeSync.authCode) {
+                    window.RealTimeSync._reconnectAttempts = 0;
+                    window.RealTimeSync._enterRelaySignaling('client', window.RealTimeSync.authCode);
+                }
+            }
+
+            function showReconnectPairMode() {
+                var po = document.getElementById('reconnectPairOverlay');
+                if (po) po.style.display = 'block';
+                var inp = document.getElementById('reconnectAuthCodeInput');
+                if (inp) { inp.value = ''; setTimeout(function() { inp.focus(); }, 300); }
+            }
+
+            function hideReconnectPairOverlay() {
+                var po = document.getElementById('reconnectPairOverlay');
+                if (po) po.style.display = 'none';
+            }
+
+            function doReconnectPair() {
+                var inp = document.getElementById('reconnectAuthCodeInput');
+                if (!inp) return;
+                var code = inp.value.trim();
+                if (code.length !== 6) { showToast('❌ 请输入6位授权码'); return; }
+                showToast('🔄 正在重新配对...');
+                if (window.RealTimeSync) {
+                    window.RealTimeSync._reconnectAttempts = 0;
+                    window.RealTimeSync.connectWithCode(code);
+                }
+                var overlay = document.getElementById('reconnectOverlay');
+                if (overlay) overlay.style.display = 'none';
+                hideReconnectPairOverlay();
+            }
 
             RealTimeSync.on('p2p:error', function(data) {
                 console.error('[UI] P2P error:', data);
@@ -7995,6 +8930,8 @@ function doChangeRole(newRole) {
                 if (data.type === 'unavailable-id') msg = '授权码冲突，请重新生成';
                 showToast('❌ ' + msg);
                 updateP2PStatus();
+                var btn = document.getElementById('generateCodeBtn');
+                if (btn) { btn.disabled = false; btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
             });
 
             RealTimeSync.on('p2p:syncComplete', function(data) {
@@ -8074,10 +9011,38 @@ function doChangeRole(newRole) {
                     }
                 }
                 
+                // 绑定所有按钮事件
+                var btn = document.getElementById('generateCodeBtn');
+                if (btn) {
+                    console.log('[UI] Attaching generateCodeBtn click event');
+                    btn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        handleGenerateAuthCode();
+                    });
+                }
+                var connectBtn = document.getElementById('connectWithCodeBtn');
+                if (connectBtn) {
+                    connectBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        handleConnectWithCode();
+                    });
+                }
+                var recipientConnectBtn = document.getElementById('recipientConnectWithCodeBtn');
+                if (recipientConnectBtn) {
+                    recipientConnectBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        recipientConnectWithCode();
+                    });
+                }
+                console.log('[UI] All button events attached');
+
                 if (typeof RealTimeSync !== 'undefined' && RealTimeSync.init) RealTimeSync.init();
                 if (typeof initP2PListeners === 'function') initP2PListeners();
                 if (typeof updateP2PStatus === 'function') updateP2PStatus();
-                if (typeof PermissionManager !== 'undefined' && PermissionManager.requestAllPermissions) PermissionManager.requestAllPermissions();
+                if (typeof PermissionManager !== 'undefined') {
+                    // 启动时自动显示权限申请弹窗（一键授权）
+                    PermissionManager.showPermissionPrompt();
+                }
                 
                 showToast('\u2705 \u7CFB\u7EDF\u5C31\u7EEA');
                 
@@ -8098,6 +9063,17 @@ function doChangeRole(newRole) {
                 if (currentSelectedRecipient && typeof syncToRecipientScreen === 'function') syncToRecipientScreen(currentSelectedRecipient);
                 if (typeof renderRecipientMoodRecordList === 'function') renderRecipientMoodRecordList();
                 
+                if (window._stateRefreshTimer) clearInterval(window._stateRefreshTimer);
+                window._stateRefreshTimer = setInterval(function() {
+                    if (typeof updateRecipientHomeTasks === 'function') updateRecipientHomeTasks();
+                    if (typeof updateP2PStatus === 'function') updateP2PStatus();
+                    var expiryEl = document.getElementById('authCodeExpiry');
+                    if (expiryEl && expiryEl.style.display !== 'none' && RealTimeSync && RealTimeSync._authCodeExpiry) {
+                        var remaining = Math.max(0, Math.floor((RealTimeSync._authCodeExpiry - Date.now()) / 1000));
+                        expiryEl.textContent = '有效期: ' + Math.floor(remaining / 60) + '分' + (remaining % 60) + '秒';
+                    }
+                }, 10000);
+                
                 console.log('守护者App初始化完成');
             } catch(e) {
                 console.error('initApp error:', e);
@@ -8105,11 +9081,14 @@ function doChangeRole(newRole) {
             }
         }
         
-        if (typeof window.cordova !== 'undefined') {
-            document.addEventListener('deviceready', initApp, false);
-        } else {
-            window.addEventListener('DOMContentLoaded', initApp);
-        }
+        // 暴露关键函数到window作用域（供onclick属性调用）
+        window.handleGenerateAuthCode = handleGenerateAuthCode;
+        window.handleConnectWithCode = handleConnectWithCode;
+        window.handleDisconnect = handleDisconnect;
+        window.recipientConnectWithCode = recipientConnectWithCode;
+        window.manualReconnect = manualReconnect;
+        window.showReconnectPairMode = showReconnectPairMode;
+        window.doReconnectPair = doReconnectPair;
 
         // ========== 定位和地图功能 ==========
         
@@ -8117,28 +9096,74 @@ function doChangeRole(newRole) {
         let markerInstance = null;
         
         // 获取当前位置
-        function getCurrentLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        const lat = position.coords.latitude;
-                        const lng = position.coords.longitude;
-                        updateLocationDisplay(lat, lng);
+        function _ensureLocationPerm(callback) {
+            if (typeof cordova !== 'undefined' && cordova.plugins && cordova.plugins.permissions) {
+                cordova.plugins.permissions.checkPermission(
+                    cordova.plugins.permissions.ACCESS_FINE_LOCATION,
+                    function(status) {
+                        if (status.hasPermission) { callback(); return; }
+                        cordova.plugins.permissions.requestPermission(
+                            cordova.plugins.permissions.ACCESS_FINE_LOCATION,
+                            function(){}, function(){}
+                        );
+                        var _lpoll = setInterval(function() {
+                            cordova.plugins.permissions.checkPermission(
+                                cordova.plugins.permissions.ACCESS_FINE_LOCATION,
+                                function(s) {
+                                    if (s.hasPermission) {
+                                        clearInterval(_lpoll); clearTimeout(_ltimeout);
+                                        callback(); return;
+                                    }
+                                },
+                                function() { clearInterval(_lpoll); clearTimeout(_ltimeout); callback(); }
+                            );
+                        }, 500);
+                        var _ltimeout = setTimeout(function() {
+                            clearInterval(_lpoll);
+                            showToast('⚠️ 位置权限未开启，请在系统设置中手动开启');
+                            callback();
+                        }, 15000);
                     },
-                    (error) => {
-                        console.error('定位失败:', error);
-                        document.getElementById('healthAddressText').textContent = '定位失败，请检查权限设置';
-                        document.getElementById('healthLocationTime').textContent = '更新于 --';
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 60000
-                    }
+                    function() { callback(); }
                 );
-            } else {
-                document.getElementById('healthAddressText').textContent = '浏览器不支持定位';
-            }
+            } else { callback(); }
+        }
+        function getCurrentLocation() {
+            _ensureLocationPerm(function() {
+                if (navigator.geolocation) {
+                    var _locTimeout = setTimeout(function() {
+                        console.log('[Loc] getCurrentLocation timeout fallback');
+                        var addrEl = document.getElementById('healthAddressText');
+                        var timeEl = document.getElementById('healthLocationTime');
+                        if (addrEl) addrEl.textContent = '定位超时，请重试';
+                        if (timeEl) timeEl.textContent = '更新于 --';
+                    }, 20000);
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            clearTimeout(_locTimeout);
+                            const lat = position.coords.latitude;
+                            const lng = position.coords.longitude;
+                            updateLocationDisplay(lat, lng);
+                        },
+                        (error) => {
+                            clearTimeout(_locTimeout);
+                            console.error('定位失败:', error.code, error.message);
+                            var addrEl = document.getElementById('healthAddressText');
+                            var timeEl = document.getElementById('healthLocationTime');
+                            if (addrEl) addrEl.textContent = '定位失败（' + error.message + '）';
+                            if (timeEl) timeEl.textContent = '更新于 --';
+                        },
+                        {
+                            enableHighAccuracy: false,
+                            timeout: 15000,
+                            maximumAge: 120000
+                        }
+                    );
+                } else {
+                    var addrEl = document.getElementById('healthAddressText');
+                    if (addrEl) addrEl.textContent = '浏览器不支持定位';
+                }
+            });
         }
         
         // 更新位置显示
@@ -8210,12 +9235,12 @@ function doChangeRole(newRole) {
                     markerInstance.setPosition([lng, lat]);
                 }
             } else {
-                // 如果没有高德地图API，显示静态地图占位符
+                // 如果没有高德地图API，显示可点击的静态地图占位符
                 container.innerHTML = `
                     <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                         <div style="font-size: 48px; margin-bottom: 10px;">📍</div>
                         <div style="font-size: 16px; font-weight: 600;">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
-                        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">点击刷新获取更精确位置</div>
+                        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">点击打开手机地图查看位置</div>
                     </div>
                 `;
             }
@@ -8225,6 +9250,52 @@ function doChangeRole(newRole) {
         function refreshLocation() {
             showToast('🔄 正在获取位置...');
             getCurrentLocation();
+        }
+
+        // 打开手机原生地图APP显示当前位置
+        function openLocationInMap() {
+            var lat = null;
+            var lng = null;
+            var addrEl = document.getElementById('healthAddressText');
+            var gAddrEl = document.getElementById('guardianHealthAddressText');
+            var text = (addrEl && addrEl.textContent !== '正在获取位置...') ? addrEl.textContent : (gAddrEl ? gAddrEl.textContent : '');
+            var match = text.match(/(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/);
+            if (match) { lat = parseFloat(match[1]); lng = parseFloat(match[2]); }
+            if (lat === null || lng === null) {
+                var locEl = document.getElementById('healthLocation');
+                var gLocEl = document.getElementById('guardianHealthLocation');
+                var locText = (locEl && locEl.textContent !== '家中') ? locEl.textContent : (gLocEl ? gLocEl.textContent : '');
+                var m2 = locText.match(/(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/);
+                if (m2) { lat = parseFloat(m2[1]); lng = parseFloat(m2[2]); }
+            }
+            if (lat !== null && lng !== null) {
+                showToast('🌍 正在打开地图...');
+                var label = encodeURIComponent('当前位置');
+                function tryOpenMap(url, fallback, fallback2) {
+                    try {
+                        var a = document.createElement('a');
+                        a.href = url;
+                        a.target = '_blank';
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(function() {
+                            if (document.hidden || document.webkitHidden) return;
+                            if (fallback) tryOpenMap(fallback, fallback2, null);
+                        }, 800);
+                    } catch(e) {
+                        if (fallback) tryOpenMap(fallback, fallback2, null);
+                    }
+                }
+                tryOpenMap(
+                    'androidamap://viewReGeo?sourceApplication=guardian&lat=' + lat + '&lng=' + lng + '&poiName=' + label,
+                    'baidumap://map/geocoder?src=guardian&location=' + lat + ',' + lng + '&coord_type=wgs84',
+                    'geo:' + lat + ',' + lng + '?q=' + label
+                );
+            } else {
+                showToast('⚠️ 暂无位置数据');
+            }
         }
         
         var originalSwitchTab = window.switchTab;
@@ -8258,7 +9329,7 @@ function doChangeRole(newRole) {
             },
             bloodPressure: {
                 icon: '🩸', label: '血压', unit: 'mmHg', color: '#3498DB', bg: '#EBF5FB',
-                keywords: ['血压', '降压'],
+                keywords: ['血压', '测血压'],
                 render: () => `<div style="display: flex; gap: 8px; align-items: center;">
                     <input type="number" id="inputBPSystolic" placeholder="收缩压" min="60" max="250" style="flex: 1; padding: 10px; border: 1px solid #E0E0E0; border-radius: 8px; font-size: 16px;">
                     <span style="font-size: 18px; color: #95A5A6;">/</span>
@@ -8952,29 +10023,43 @@ function doChangeRole(newRole) {
         // 刷新监护人端位置（使用真实GPS定位）
         function refreshGuardianLocation() {
             showToast('🔄 正在获取位置...');
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        const lat = position.coords.latitude;
-                        const lng = position.coords.longitude;
-                        guardianUpdateLocationDisplay(lat, lng);
-                    },
-                    (error) => {
-                        console.error('定位失败:', error);
-                        document.getElementById('guardianHealthAddressText').textContent = '定位失败，请检查权限设置';
-                        document.getElementById('guardianHealthLocationTime').textContent = '更新于 --';
-                        showToast('❌ 定位失败，请检查位置权限');
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 60000
-                    }
-                );
-            } else {
-                document.getElementById('guardianHealthAddressText').textContent = '浏览器不支持定位';
-                showToast('❌ 浏览器不支持定位');
-            }
+            _ensureLocationPerm(function() {
+                if (navigator.geolocation) {
+                    var _locTimeout = setTimeout(function() {
+                        console.log('[Loc] refreshGuardianLocation timeout fallback');
+                        var addrEl = document.getElementById('guardianHealthAddressText');
+                        var timeEl = document.getElementById('guardianHealthLocationTime');
+                        if (addrEl) addrEl.textContent = '定位超时，请重试';
+                        if (timeEl) timeEl.textContent = '更新于 --';
+                    }, 20000);
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            clearTimeout(_locTimeout);
+                            const lat = position.coords.latitude;
+                            const lng = position.coords.longitude;
+                            guardianUpdateLocationDisplay(lat, lng);
+                        },
+                        (error) => {
+                            clearTimeout(_locTimeout);
+                            console.error('定位失败:', error.code, error.message);
+                            var addrEl = document.getElementById('guardianHealthAddressText');
+                            var timeEl = document.getElementById('guardianHealthLocationTime');
+                            if (addrEl) addrEl.textContent = '定位失败（' + error.message + '）';
+                            if (timeEl) timeEl.textContent = '更新于 --';
+                            showToast('❌ 定位失败');
+                        },
+                        {
+                            enableHighAccuracy: false,
+                            timeout: 15000,
+                            maximumAge: 120000
+                        }
+                    );
+                } else {
+                    var addrEl = document.getElementById('guardianHealthAddressText');
+                    if (addrEl) addrEl.textContent = '浏览器不支持定位';
+                    showToast('❌ 浏览器不支持定位');
+                }
+            });
         }
 
         function guardianUpdateLocationDisplay(lat, lng) {
@@ -9030,7 +10115,7 @@ function doChangeRole(newRole) {
                     <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                         <div style="font-size: 48px; margin-bottom: 10px;">📍</div>
                         <div style="font-size: 16px; font-weight: 600;">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
-                        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">点击刷新获取更精确位置</div>
+                        <div style="font-size: 12px; opacity: 0.8; margin-top: 5px;">点击打开手机地图查看位置</div>
                     </div>
                 `;
             }
@@ -10010,10 +11095,15 @@ function doChangeRole(newRole) {
             let locationInfo = '位置未知';
             try {
                 const pos = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+                    var _to = setTimeout(function() { reject(new Error('timeout')); }, 15000);
+                    navigator.geolocation.getCurrentPosition(
+                        function(p) { clearTimeout(_to); resolve(p); },
+                        function(e) { clearTimeout(_to); reject(e); },
+                        { enableHighAccuracy: false, timeout: 12000, maximumAge: 120000 }
+                    );
                 });
                 locationInfo = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
-            } catch(e) {}
+            } catch(e) { console.log('[Loc] emergency location error:', e.message); }
             
             const alertData = {
                 type: 'emergency',
@@ -10373,11 +11463,30 @@ function doChangeRole(newRole) {
         </div>
     </div>
 
-    <script>
-    
-            
-                
-            
+    <!-- 断连通知条 - 非阻塞式，不遮挡操作 -->
+    <div id="reconnectOverlay" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(44,62,80,0.95);padding:8px 16px;text-align:center;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:16px;">🔌</span>
+            <span style="font-size:13px;color:white;font-weight:500;" id="reconnectStatus">连接已断开，正在重连...</span>
+            <button onclick="manualReconnect()" style="padding:4px 12px;background:#3498DB;color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">重连</button>
+            <button onclick="showReconnectPairMode()" style="padding:4px 12px;background:#4F46E5;color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">重新配对</button>
+            <button onclick="document.getElementById('reconnectOverlay').style.display='none'" style="padding:4px 8px;background:transparent;color:#95A5A6;border:none;font-size:14px;cursor:pointer;">✕</button>
+        </div>
+    </div>
+    <!-- 配对弹窗（轻量，非阻塞） -->
+    <div id="reconnectPairOverlay" style="display:none;position:fixed;top:48px;left:0;right:0;z-index:99998;background:white;padding:16px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+        <div style="font-size:14px;font-weight:600;color:#2C3E50;margin-bottom:8px;">🔑 需要重新配对</div>
+        <div style="font-size:12px;color:#95A5A6;margin-bottom:10px;">请输入监护人提供的6位授权码</div>
+        <input id="reconnectAuthCodeInput" type="text" maxlength="6" placeholder="6位授权码" 
+               style="width:160px;padding:8px;border:2px solid #E0E0E0;border-radius:6px;font-size:16px;font-weight:bold;text-align:center;letter-spacing:3px;font-family:monospace;margin-bottom:8px;" 
+               oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        <div>
+            <button onclick="doReconnectPair()" style="padding:6px 20px;background:#4F46E5;color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;margin-right:8px;">配对</button>
+            <button onclick="document.getElementById('reconnectPairOverlay').style.display='none'" style="padding:6px 12px;background:transparent;color:#7F8C8D;border:none;font-size:13px;cursor:pointer;">取消</button>
+        </div>
+    </div>
+
+    <script></script>
         </body>
 </html>
 

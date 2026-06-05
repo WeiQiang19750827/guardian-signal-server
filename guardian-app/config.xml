@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<widget id="com.guardian.app" version="4.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
+<widget id="com.guardian.app" version="4.4.5" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0" xmlns:android="http://schemas.android.com/apk/res/android">
     <name>守护者 Guardian</name>
     <description>Guardian P2P Communication App</description>
     <author email="guardian@app.com">Guardian Team</author>
@@ -18,6 +18,10 @@
         <preference name="android-targetSdkVersion" value="36" />
         <preference name="loadUrlTimeoutValue" value="30000" />
         <preference name="scheme" value="guardian" />
+        <config-file target="AndroidManifest.xml" parent="/*">
+            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+        </config-file>
     </platform>
     <preference name="SplashScreen" value="none" />
     <preference name="SplashScreenDelay" value="0" />
