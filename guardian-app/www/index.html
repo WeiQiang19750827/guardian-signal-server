@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v4.5.1</title>
+    <title>守护者 Guardian v4.5.2</title>
     <script src="cordova.js"></script>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
@@ -3911,7 +3911,7 @@
         // 流程：生成6位密码 → 输入密码 → MQTT自动转发SDP → P2P直连建立
         const SocketIOSignaling = {
             _socket: null, _roomId: null, _isHost: false,
-            _relayActive: false, _connecting: false,
+            _relayActive: false, _connecting: false, _peerJoined: false,
             _relayTimer: null, _fallbackTimer: null,
             _iceCandidateQueue: [],
             pc: null, dc: null,
@@ -4057,6 +4057,7 @@
 
                 this._socket.on('peer_joined', function() {
                     console.log('[SocketIO] 对端已加入房间');
+                    self._peerJoined = true;
                     showToast('👥 对端已加入');
                     if (isHost) self._startHost();
                 });
@@ -4175,6 +4176,10 @@
                 showToast('🔁 已启用中继热备');
                 this._relayTimer = setTimeout(function() {
                     if (window.RealTimeSync && !RealTimeSync.isConnected) {
+                        if (!self._peerJoined) {
+                            console.log('[P2P v4.5.1] 对端未加入，跳过中继降级');
+                            return;
+                        }
                         console.log('[P2P v4.3.5] WebRTC超时(15s)，中继降级接管');
                         showToast('🔁 中继降级接管');
                         RealTimeSync._connectSig(self._relayDc);
@@ -8514,8 +8519,6 @@ function doChangeRole(newRole) {
             console.log('[UI] Disabling button and starting generation');
             btn.disabled = true;
             btn.textContent = '⏳ 生成中...';
-            if (display) display.style.display = 'block';
-            if (value) value.textContent = '⏳ 获取中...';
             
             try {
                 // 调用generateAuthCode，等待Promise完成（带15s超时）
@@ -8529,9 +8532,11 @@ function doChangeRole(newRole) {
                 console.log('[UI] generateAuthCode returned:', result);
                 
                 if (result && result.code) {
+                    // 先填充内容，再显示容器，防止字体跳变
                     if (value) value.textContent = result.code;
                     var passwordValue = document.getElementById('authPasswordValue');
                     if (passwordValue) passwordValue.textContent = result.password || '';
+                    if (display) display.style.display = 'block';
                     btn.textContent = '重新生成';
                     btn.style.background = '#7F8C8D';
                     updateP2PStatus();
