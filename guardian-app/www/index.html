@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v4.5.2</title>
+    <title>守护者 Guardian v4.5.3</title>
     <script src="cordova.js"></script>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
@@ -2401,7 +2401,7 @@
             fastHeartbeatTimer: null,
             
             // ========== 配置参数 ==========
-            AUTH_CODE_TTL: 10 * 60 * 1000,
+            AUTH_CODE_TTL: 24 * 60 * 60 * 1000,
             HEARTBEAT_INTERVAL: 15000,
             FAST_HEARTBEAT_INTERVAL: 5000,
             RECONNECT_DELAY: 2000,
@@ -3073,6 +3073,7 @@
                             self.authPassword = data.password || null;
                             self.authCodeExpiry = Date.now() + (data.expiresIn ? data.expiresIn * 1000 : self.AUTH_CODE_TTL);
                             self.peerId = self._peerIdFromAuthCode(self.authCode);
+                            self._persistConnection(); // 立即保存配对信息到本地
                             console.log('[P2P v1.108] HTTP配对码已获取:', self.authCode, '密码:', self.authPassword);
                             self._dispatch('p2p:codeReady', { code: self.authCode, password: self.authPassword, expiresAt: self.authCodeExpiry });
                             self._startPairPolling(self.authCode, 'host');
@@ -3096,6 +3097,7 @@
                 this._cleanupConnection();
                 
                 this.authCode = code;
+                this.authPassword = password || null;
                 this.isHost = false;
                 this.peerId = this._peerIdFromAuthCode(code);
 
@@ -3724,27 +3726,28 @@
 
             _attemptReconnect() {
                 console.log('[P2P] Reconnect requested');
+                // 清理旧连接状态，防止状态冲突
+                this._cleanupConnection();
+                this._peerJoined = false;
                 this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
-                if (this._reconnectAttempts > 3) {
-                    console.log('[P2P] Max reconnect attempts reached, show pairing');
-                    var st = document.getElementById('reconnectStatus');
-                    if (st) st.textContent = '重连失败';
-                    showReconnectPairMode();
-                    return;
-                }
+                // 指数退避: 2s, 4s, 8s, 16s, 32s, 60s(max)
+                var delay = Math.min(2000 * Math.pow(2, this._reconnectAttempts - 1), 60000);
+                console.log('[P2P] 重连尝试 #' + this._reconnectAttempts + ', 延迟 ' + delay + 'ms, role=' + (this.isHost ? 'host' : 'client'));
                 this.reconnectTimer = setTimeout(() => {
                     if (this.authCode) {
                         var st = document.getElementById('reconnectStatus');
-                        if (st) st.textContent = '重连中 (' + this._reconnectAttempts + '/3)...';
-                        this._enterRelaySignaling('client', this.authCode);
+                        if (st) st.textContent = '重连中 (' + this._reconnectAttempts + ')...';
+                        // 根据 isHost 选择角色，确保守护端以 host 角色重连
+                        this._enterRelaySignaling(this.isHost ? 'host' : 'client', this.authCode);
                     }
-                }, this.RECONNECT_DELAY);
+                }, delay);
             },
 
             _persistConnection() {
                 try {
                     const connInfo = {
                         authCode: this.authCode,
+                        authPassword: this.authPassword || null,
                         isHost: this.isHost,
                         peerId: this.peerId,
                         expiresAt: this.authCodeExpiry || (Date.now() + this.AUTH_CODE_TTL),
@@ -8865,19 +8868,46 @@ function doChangeRole(newRole) {
                 console.log('[UI] 发现已保存的配对信息, 自动重连');
                 if (!data || !data.authCode) return;
                 if (RealTimeSync.isConnected) return;
-                if (data.expiresAt && Date.now() > data.expiresAt) {
-                    console.log('[UI] 配对码已过期, 跳过自动重连');
-                    return;
-                }
-                RealTimeSync.authCode = data.authCode;
+                var isExpired = data.expiresAt && Date.now() > data.expiresAt;
                 if (data.isHost) {
                     RealTimeSync.isHost = true;
-                    RealTimeSync._enterRelaySignaling('host', data.authCode);
+                    if (isExpired) {
+                        console.log('[UI] 守护端配对码已过期, 自动重新生成');
+                        showToast('🔄 配对码已过期，自动生成新码...');
+                        RealTimeSync.generateAuthCode().then(function(result) {
+                            if (result && result.code) {
+                                console.log('[UI] 自动生成新授权码:', result.code);
+                                var value = document.getElementById('authCodeValue');
+                                var display = document.getElementById('authCodeDisplay');
+                                var pwd = document.getElementById('authPasswordValue');
+                                if (value) value.textContent = result.code;
+                                if (pwd) pwd.textContent = result.password || '';
+                                if (display) display.style.display = 'block';
+                                var btn = document.getElementById('generateCodeBtn');
+                                if (btn) { btn.disabled = false; btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
+                                updateP2PStatus();
+                                updateAuthCodeExpiry();
+                                showToast('🔄 新配对码已生成，告知对方新密码');
+                            }
+                        }).catch(function(e) {
+                            console.error('[UI] 自动生成授权码失败:', e);
+                        });
+                    } else {
+                        RealTimeSync.authCode = data.authCode;
+                        RealTimeSync.authPassword = data.authPassword || null;
+                        RealTimeSync._enterRelaySignaling('host', data.authCode);
+                        showToast('🔄 正在恢复上次连接...');
+                    }
                 } else {
                     RealTimeSync.isHost = false;
+                    if (isExpired) {
+                        console.log('[UI] 被守护端配对码已过期, 仍尝试重连(服务端24h有效)');
+                    }
+                    RealTimeSync.authCode = data.authCode;
+                    RealTimeSync.authPassword = data.authPassword || null;
                     RealTimeSync._enterRelaySignaling('client', data.authCode);
+                    showToast('🔄 正在恢复上次连接...');
                 }
-                showToast('🔄 正在恢复上次连接...');
             });
 
             RealTimeSync.on('p2p:connected', function(data) {
@@ -8926,21 +8956,28 @@ function doChangeRole(newRole) {
 
             RealTimeSync.on('p2p:disconnected', function() {
                 console.log('[UI] P2P disconnected');
-                showToast('⚠️ 连接已断开');
+                showToast('⚠️ 连接已断开，自动重连中...');
                 updateP2PStatus();
                 var overlay = document.getElementById('reconnectOverlay');
                 if (overlay) overlay.style.display = 'block';
-                setTimeout(function() {
-                    if (window.RealTimeSync && window.RealTimeSync.authCode) {
-                        window.RealTimeSync._enterRelaySignaling('client', window.RealTimeSync.authCode);
-                    }
-                }, 3000);
+                var st = document.getElementById('reconnectStatus');
+                if (st) st.textContent = '自动重连中...';
+                // 使用指数退避重连，无限重试
+                if (window.RealTimeSync) {
+                    window.RealTimeSync._attemptReconnect();
+                }
             });
 
             RealTimeSync.on('p2p:connected', function() {
             var overlay = document.getElementById('reconnectOverlay');
             if (overlay) overlay.style.display = 'none';
             hideReconnectPairOverlay();
+            // 重置重连计数器，成功后归零
+            RealTimeSync._reconnectAttempts = 0;
+            if (RealTimeSync.reconnectTimer) {
+                clearTimeout(RealTimeSync.reconnectTimer);
+                RealTimeSync.reconnectTimer = null;
+            }
             RealTimeSync._flushingOffline = true;
             try {
                 var queue = JSON.parse(localStorage.getItem('guardian_offline_queue') || '[]');
