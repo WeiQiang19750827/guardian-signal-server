@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8080;
-const VERSION = '4.5.1';
+const VERSION = '4.5.2';
 const PAIR_TTL = 300000;
 
 function createLogger(prefix) {
@@ -103,8 +103,8 @@ setInterval(debugActivePairs, 10000);
 app.post('/pair', (req, res) => {
   let code;
   do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (pairs.has(code));
-  // 生成配对密码（4位数字）
-  const password = String(Math.floor(1000 + Math.random() * 9000));
+  // 配对密码 = 授权码后4位，被守护端只需输入授权码
+  const password = code.slice(-4);
   pairs.set(code, { code, password, joinedBy: null, createdAt: Date.now() });
   log.ok('pair created: ' + code + ', password: ' + password + ', total pairs: ' + pairs.size);
   res.json({ status: 'ok', code, password, expiresIn: PAIR_TTL / 1000, role: 'guardian' });

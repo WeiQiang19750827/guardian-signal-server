@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v4.5.4</title>
+    <title>守护者 Guardian v4.5.5</title>
     <script src="cordova.js"></script>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
@@ -1681,22 +1681,15 @@
                             <div id="authCodeDisplay" style="display: none; text-align: center; padding: 15px; background: #EEF2FF; border-radius: 12px; margin-bottom: 12px;">
                                 <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 4px;">授权码</div>
                                 <div id="authCodeValue" style="font-size: 36px; font-weight: bold; color: #4F46E5; letter-spacing: 8px; font-family: monospace;"></div>
-                                <div style="margin-top: 12px;">
-                                    <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 4px;">配对密码</div>
-                                    <div id="authPasswordValue" style="font-size: 28px; font-weight: bold; color: #E74C3C; letter-spacing: 4px; font-family: monospace;"></div>
-                                </div>
                                 <div id="authCodeExpiry" style="font-size: 11px; color: #95A5A6; margin-top: 6px;"></div>
                             </div>
                             <button id="generateCodeBtn" style="width: 100%; padding: 10px; background: #4F46E5; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">生成授权码</button>
                         </div>
                         <div id="p2pClientSection" style="display: none; background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                             <div style="font-size: 14px; font-weight: 600; color: #2C3E50; margin-bottom: 10px;">👴 输入授权码</div>
-                            <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 12px;">输入监护人提供的6位授权码和密码建立连接</div>
-                            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                            <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 12px;">输入监护人提供的6位授权码建立连接</div>
+                            <div style="display: flex; gap: 8px;">
                                 <input id="inputAuthCode" type="text" maxlength="6" placeholder="输入6位授权码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                            </div>
-                            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-                                <input id="inputAuthPassword" type="text" maxlength="4" placeholder="输入4位密码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                                 <button onclick="handleConnectWithCode()" style="padding: 10px 16px; background: #2ECC71; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;">连接</button>
                             </div>
                         </div>
@@ -2197,12 +2190,9 @@
                             </div>
                             <div id="recipientP2pClientSection" style="display: none; background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                                 <div style="font-size: 14px; font-weight: 600; color: #2C3E50; margin-bottom: 8px;">🔑 输入授权码</div>
-                                <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 10px;">输入监护人提供的6位授权码和4位密码建立连接</div>
-                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                                    <input id="recipientInputAuthCode" type="text" maxlength="6" placeholder="6位授权码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 18px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
-                                </div>
+                                <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 10px;">输入监护人提供的6位授权码建立连接</div>
                                 <div style="display: flex; gap: 8px;">
-                                    <input id="recipientInputAuthPassword" type="text" maxlength="4" placeholder="4位密码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 18px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                                    <input id="recipientInputAuthCode" type="text" maxlength="6" placeholder="6位授权码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 18px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                                     <button onclick="recipientConnectWithCode()" style="padding: 10px 16px; background: #2ECC71; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;">连接</button>
                                 </div>
                             </div>
@@ -8583,18 +8573,14 @@ function doChangeRole(newRole) {
             function doConnect() {
                 try {
                     var input = document.getElementById('inputAuthCode');
-                    var inputPassword = document.getElementById('inputAuthPassword');
                     if (!input) return;
                     var code = input.value.trim();
-                    var password = inputPassword ? inputPassword.value.trim() : '';
                     if (code.length !== 6) {
                         showToast('❌ 请输入6位授权码');
                         return;
                     }
-                    if (password.length !== 4) {
-                        showToast('❌ 请输入4位密码');
-                        return;
-                    }
+                    // 密码 = 授权码后4位，自动派生
+                    var password = code.slice(-4);
                     showToast('🔄 正在连接...');
                     RealTimeSync.connectWithCode(code, password).then(function() {
                         updateP2PStatus();
@@ -8620,18 +8606,14 @@ function doChangeRole(newRole) {
             function doConnect() {
                 try {
                     var input = document.getElementById('recipientInputAuthCode');
-                    var inputPassword = document.getElementById('recipientInputAuthPassword');
                     if (!input) return;
                     var code = input.value.trim();
-                    var password = inputPassword ? inputPassword.value.trim() : '';
                     if (code.length !== 6) {
                         showToast('❌ 请输入6位授权码');
                         return;
                     }
-                    if (password.length !== 4) {
-                        showToast('❌ 请输入4位密码');
-                        return;
-                    }
+                    // 密码 = 授权码后4位，自动派生
+                    var password = code.slice(-4);
                     showToast('🔄 正在连接...');
                     RealTimeSync.connectWithCode(code, password).then(function() {
                         updateP2PStatus();
@@ -8890,7 +8872,7 @@ function doChangeRole(newRole) {
                                 if (btn) { btn.disabled = false; btn.textContent = '重新生成'; btn.style.background = '#7F8C8D'; }
                                 updateP2PStatus();
                                 updateAuthCodeExpiry();
-                                showToast('🔄 新配对码已生成，告知对方新密码');
+                                showToast('🔄 新配对码已生成，告知对方请输入此授权码');
                             }
                         }).catch(function(e) {
                             console.error('[UI] 自动生成授权码失败:', e);
