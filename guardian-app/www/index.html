@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v4.4.5</title>
+    <title>守护者 Guardian v4.5.0</title>
     <script src="cordova.js"></script>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
@@ -1681,15 +1681,22 @@
                             <div id="authCodeDisplay" style="display: none; text-align: center; padding: 15px; background: #EEF2FF; border-radius: 12px; margin-bottom: 12px;">
                                 <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 4px;">授权码</div>
                                 <div id="authCodeValue" style="font-size: 36px; font-weight: bold; color: #4F46E5; letter-spacing: 8px; font-family: monospace;"></div>
+                                <div style="margin-top: 12px;">
+                                    <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 4px;">配对密码</div>
+                                    <div id="authPasswordValue" style="font-size: 28px; font-weight: bold; color: #E74C3C; letter-spacing: 4px; font-family: monospace;"></div>
+                                </div>
                                 <div id="authCodeExpiry" style="font-size: 11px; color: #95A5A6; margin-top: 6px;"></div>
                             </div>
                             <button id="generateCodeBtn" style="width: 100%; padding: 10px; background: #4F46E5; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">生成授权码</button>
                         </div>
                         <div id="p2pClientSection" style="display: none; background: white; border-radius: 12px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                             <div style="font-size: 14px; font-weight: 600; color: #2C3E50; margin-bottom: 10px;">👴 输入授权码</div>
-                            <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 12px;">输入监护人提供的6位授权码建立连接</div>
+                            <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 12px;">输入监护人提供的6位授权码和密码建立连接</div>
                             <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-                                <input id="inputAuthCode" type="text" maxlength="6" placeholder="输入6位授权码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,')">
+                                <input id="inputAuthCode" type="text" maxlength="6" placeholder="输入6位授权码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                            </div>
+                            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                                <input id="inputAuthPassword" type="text" maxlength="4" placeholder="输入4位密码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 20px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                                 <button onclick="handleConnectWithCode()" style="padding: 10px 16px; background: #2ECC71; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;">连接</button>
                             </div>
                         </div>
@@ -2190,9 +2197,12 @@
                             </div>
                             <div id="recipientP2pClientSection" style="background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                                 <div style="font-size: 14px; font-weight: 600; color: #2C3E50; margin-bottom: 8px;">🔑 输入授权码</div>
-                                <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 10px;">输入监护人提供的6位授权码建立连接</div>
-                                <div style="display: flex; gap: 8px;">
+                                <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 10px;">输入监护人提供的6位授权码和4位密码建立连接</div>
+                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
                                     <input id="recipientInputAuthCode" type="text" maxlength="6" placeholder="6位授权码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 18px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <input id="recipientInputAuthPassword" type="text" maxlength="4" placeholder="4位密码" style="flex: 1; padding: 10px; border: 2px solid #E0E0E0; border-radius: 8px; font-size: 18px; font-weight: bold; text-align: center; letter-spacing: 4px; font-family: monospace;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                                     <button onclick="recipientConnectWithCode()" style="padding: 10px 16px; background: #2ECC71; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;">连接</button>
                                 </div>
                             </div>
@@ -3018,6 +3028,7 @@
                 var self = this;
                 this.isHost = true;
                 this.authCode = '------';
+                this.authPassword = null;
                 this.authCodeExpiry = Date.now() + this.AUTH_CODE_TTL;
 
                 this._pairServer = this._pairServer || 'https://guardian-sig-v2.up.railway.app';
@@ -3028,14 +3039,15 @@
                         .then(function(data){
                             if (!data || !data.code) throw new Error('服务端返回无效');
                             self.authCode = data.code;
+                            self.authPassword = data.password || null;
                             self.authCodeExpiry = Date.now() + (data.expiresIn ? data.expiresIn * 1000 : self.AUTH_CODE_TTL);
                             self.peerId = self._peerIdFromAuthCode(self.authCode);
-                            console.log('[P2P v1.108] HTTP配对码已获取:', self.authCode);
-                            self._dispatch('p2p:codeReady', { code: self.authCode, expiresAt: self.authCodeExpiry });
+                            console.log('[P2P v1.108] HTTP配对码已获取:', self.authCode, '密码:', self.authPassword);
+                            self._dispatch('p2p:codeReady', { code: self.authCode, password: self.authPassword, expiresAt: self.authCodeExpiry });
                             self._startPairPolling(self.authCode, 'host');
                             // v2.0.2: 直接进入信令中继（Railway WebSocket relay 替代 MQTT）
                             self._enterRelaySignaling('host', self.authCode);
-                            resolve({ code: self.authCode, expiresAt: self.authCodeExpiry });
+                            resolve({ code: self.authCode, password: self.authPassword, expiresAt: self.authCodeExpiry });
                         })
                         .catch(function(e){
                             console.error('[P2P v1.108] HTTP配对失败:', e);
@@ -3048,7 +3060,7 @@
 
             
 
-            connectWithCode(code) {
+            connectWithCode(code, password) {
                 this._connecting = true;
                 this._cleanupConnection();
                 
@@ -3062,10 +3074,15 @@
                 var joinUrl = self._pairServer + '/pair/' + encodeURIComponent(code) + '/join';
                 console.log('[P2P] connectWithCode: 开始连接, code=' + code + ', url=' + joinUrl);
                 
-                self._fetchWithRetry(joinUrl, { method: 'POST' }, 3, 1000)
+                self._fetchWithRetry(joinUrl, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: password })
+                }, 3, 1000)
                     .then(function(r){
                         console.log('[P2P] connectWithCode: HTTP响应, status=' + r.status);
                         if (r.status === 404) throw new Error('配对码无效或已过期');
+                        if (r.status === 401) throw new Error('密码错误');
                         if (r.status === 400) throw new Error('该配对码已被使用');
                         if (r.status === 429) throw new Error('请求过于频繁，请稍后重试');
                         if (r.status === 503) throw new Error('服务器繁忙，请稍后重试');
@@ -8482,6 +8499,8 @@ function doChangeRole(newRole) {
                 
                 if (result && result.code) {
                     if (value) value.textContent = result.code;
+                    var passwordValue = document.getElementById('authPasswordValue');
+                    if (passwordValue) passwordValue.textContent = result.password || '';
                     btn.textContent = '重新生成';
                     btn.style.background = '#7F8C8D';
                     updateP2PStatus();
@@ -8525,14 +8544,20 @@ function doChangeRole(newRole) {
             function doConnect() {
                 try {
                     var input = document.getElementById('inputAuthCode');
+                    var inputPassword = document.getElementById('inputAuthPassword');
                     if (!input) return;
                     var code = input.value.trim();
+                    var password = inputPassword ? inputPassword.value.trim() : '';
                     if (code.length !== 6) {
                         showToast('❌ 请输入6位授权码');
                         return;
                     }
+                    if (password.length !== 4) {
+                        showToast('❌ 请输入4位密码');
+                        return;
+                    }
                     showToast('🔄 正在连接...');
-                    RealTimeSync.connectWithCode(code).then(function() {
+                    RealTimeSync.connectWithCode(code, password).then(function() {
                         updateP2PStatus();
                     }).catch(function(e) {
                         console.error('connectWithCode error:', e);
@@ -8556,14 +8581,20 @@ function doChangeRole(newRole) {
             function doConnect() {
                 try {
                     var input = document.getElementById('recipientInputAuthCode');
+                    var inputPassword = document.getElementById('recipientInputAuthPassword');
                     if (!input) return;
                     var code = input.value.trim();
+                    var password = inputPassword ? inputPassword.value.trim() : '';
                     if (code.length !== 6) {
                         showToast('❌ 请输入6位授权码');
                         return;
                     }
+                    if (password.length !== 4) {
+                        showToast('❌ 请输入4位密码');
+                        return;
+                    }
                     showToast('🔄 正在连接...');
-                    RealTimeSync.connectWithCode(code).then(function() {
+                    RealTimeSync.connectWithCode(code, password).then(function() {
                         updateP2PStatus();
                     }).catch(function(e) {
                         console.error('recipientConnectWithCode error:', e);

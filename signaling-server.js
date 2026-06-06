@@ -5,7 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 8080;
-const VERSION = '4.4.0';
+const VERSION = '4.5.0';
 const PAIR_TTL = 300000;
 
 function createLogger(prefix) {
@@ -103,18 +103,26 @@ setInterval(debugActivePairs, 10000);
 app.post('/pair', (req, res) => {
   let code;
   do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (pairs.has(code));
-  pairs.set(code, { code, createdBy: null, joinedBy: null, createdAt: Date.now() });
-  log.ok('pair created: ' + code + ', total pairs: ' + pairs.size);
-  res.json({ status: 'ok', code, expiresIn: PAIR_TTL / 1000, role: 'guardian' });
+  // 生成配对密码（4位数字）
+  const password = String(Math.floor(1000 + Math.random() * 9000));
+  pairs.set(code, { code, password, joinedBy: null, createdAt: Date.now() });
+  log.ok('pair created: ' + code + ', password: ' + password + ', total pairs: ' + pairs.size);
+  res.json({ status: 'ok', code, password, expiresIn: PAIR_TTL / 1000, role: 'guardian' });
 });
 
 app.post('/pair/:code/join', (req, res) => {
   const code = req.params.code;
+  const providedPassword = req.body ? req.body.password : null;
   log.info('pair join request for code:', code, ', available codes:', Array.from(pairs.keys()).join(','));
   const pair = pairs.get(code);
   if (!pair) {
     log.warn('pair not found: ' + code);
     return res.status(404).json({ error: 'pair code not found or expired' });
+  }
+  // 验证密码
+  if (pair.password && (!providedPassword || providedPassword !== pair.password)) {
+    log.warn('invalid password for pair: ' + code);
+    return res.status(401).json({ error: 'invalid password' });
   }
   if (!pair.joinedBy) pair.joinedBy = true;
   log.ok('pair joined: ' + code + ', total pairs: ' + pairs.size);
