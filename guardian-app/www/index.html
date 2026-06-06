@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#667eea">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="format-detection" content="telephone=no">
-    <title>守护者 Guardian v4.5.3</title>
+    <title>守护者 Guardian v4.5.4</title>
     <script src="cordova.js"></script>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- v4.0: Socket.IO 信令（WebSocket + HTTP polling 自动降级） -->
@@ -2195,7 +2195,7 @@
                                 </div>
                                 <div id="recipientP2pStatusDetail" style="font-size: 12px; color: #95A5A6;"></div>
                             </div>
-                            <div id="recipientP2pClientSection" style="background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+                            <div id="recipientP2pClientSection" style="display: none; background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
                                 <div style="font-size: 14px; font-weight: 600; color: #2C3E50; margin-bottom: 8px;">🔑 输入授权码</div>
                                 <div style="font-size: 12px; color: #7F8C8D; margin-bottom: 10px;">输入监护人提供的6位授权码和4位密码建立连接</div>
                                 <div style="display: flex; gap: 8px; margin-bottom: 8px;">
@@ -8680,12 +8680,15 @@ function doChangeRole(newRole) {
             var recipientDisconnectSection = document.getElementById('recipientP2pDisconnectSection');
             var hostSection = document.getElementById('p2pHostSection');
             var clientSection = document.getElementById('p2pClientSection');
+            var recipientClientSection = document.getElementById('recipientP2pClientSection');
             if (currentRole === 'guardian' || currentRole === 'observer' || currentRole === 'demo') {
                 if (hostSection) hostSection.style.display = 'block';
                 if (clientSection) clientSection.style.display = 'none';
+                if (recipientClientSection) recipientClientSection.style.display = 'none';
             } else if (currentRole === 'elder' || currentRole === 'child') {
                 if (hostSection) hostSection.style.display = 'none';
-                if (clientSection) clientSection.style.display = 'block';
+                if (clientSection) clientSection.style.display = 'none';
+                if (recipientClientSection) recipientClientSection.style.display = 'block';
             }
 
             var dotColor, borderColor, statusText, statusDetail, showDisconnect;
