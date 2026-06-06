@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; connect-src 'self' https: wss: ws:; img-src 'self' data: blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; connect-src 'self' http://*:* https: wss: ws: ws://*:8080; img-src 'self' data: blob:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2331,6 +2331,37 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // ========== 全局函数：重连/配对（定义在 initApp 外，防止 onclick 引用报错） ==========
+        window.manualReconnect = function() {
+            var st = document.getElementById('reconnectStatus');
+            if (st) st.textContent = '正在重连...';
+            if (window.RealTimeSync && window.RealTimeSync.authCode) {
+                window.RealTimeSync._reconnectAttempts = 0;
+                window.RealTimeSync._enterRelaySignaling('client', window.RealTimeSync.authCode);
+            }
+        };
+        window.showReconnectPairMode = function() {
+            var po = document.getElementById('reconnectPairOverlay');
+            if (po) po.style.display = 'block';
+            var inp = document.getElementById('reconnectAuthCodeInput');
+            if (inp) { inp.value = ''; setTimeout(function() { inp.focus(); }, 300); }
+        };
+        window.doReconnectPair = function() {
+            var inp = document.getElementById('reconnectAuthCodeInput');
+            if (!inp) return;
+            var code = inp.value.trim();
+            if (code.length !== 6) { showToast('❌ 请输入6位授权码'); return; }
+            showToast('🔄 正在重新配对...');
+            if (window.RealTimeSync) {
+                window.RealTimeSync._reconnectAttempts = 0;
+                window.RealTimeSync.connectWithCode(code);
+            }
+            var overlay = document.getElementById('reconnectOverlay');
+            if (overlay) overlay.style.display = 'none';
+            var po = document.getElementById('reconnectPairOverlay');
+            if (po) po.style.display = 'none';
+        };
+
         // ========== 提前注册 initApp（确保不会被后续错误阻断） ==========
         if (typeof window.cordova !== 'undefined') {
             document.addEventListener('deviceready', initApp, false);
@@ -8918,40 +8949,9 @@ function doChangeRole(newRole) {
             RealTimeSync._offlineQueue = [];
         });
 
-            function manualReconnect() {
-                var st = document.getElementById('reconnectStatus');
-                if (st) st.textContent = '正在重连...';
-                if (window.RealTimeSync && window.RealTimeSync.authCode) {
-                    window.RealTimeSync._reconnectAttempts = 0;
-                    window.RealTimeSync._enterRelaySignaling('client', window.RealTimeSync.authCode);
-                }
-            }
-
-            function showReconnectPairMode() {
-                var po = document.getElementById('reconnectPairOverlay');
-                if (po) po.style.display = 'block';
-                var inp = document.getElementById('reconnectAuthCodeInput');
-                if (inp) { inp.value = ''; setTimeout(function() { inp.focus(); }, 300); }
-            }
-
             function hideReconnectPairOverlay() {
                 var po = document.getElementById('reconnectPairOverlay');
                 if (po) po.style.display = 'none';
-            }
-
-            function doReconnectPair() {
-                var inp = document.getElementById('reconnectAuthCodeInput');
-                if (!inp) return;
-                var code = inp.value.trim();
-                if (code.length !== 6) { showToast('❌ 请输入6位授权码'); return; }
-                showToast('🔄 正在重新配对...');
-                if (window.RealTimeSync) {
-                    window.RealTimeSync._reconnectAttempts = 0;
-                    window.RealTimeSync.connectWithCode(code);
-                }
-                var overlay = document.getElementById('reconnectOverlay');
-                if (overlay) overlay.style.display = 'none';
-                hideReconnectPairOverlay();
             }
 
             RealTimeSync.on('p2p:error', function(data) {
@@ -9117,9 +9117,6 @@ function doChangeRole(newRole) {
         window.handleConnectWithCode = handleConnectWithCode;
         window.handleDisconnect = handleDisconnect;
         window.recipientConnectWithCode = recipientConnectWithCode;
-        window.manualReconnect = manualReconnect;
-        window.showReconnectPairMode = showReconnectPairMode;
-        window.doReconnectPair = doReconnectPair;
 
         // ========== 定位和地图功能 ==========
         
