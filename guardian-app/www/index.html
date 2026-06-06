@@ -3097,32 +3097,36 @@
                 var joinUrl = self._pairServer + '/pair/' + encodeURIComponent(code) + '/join';
                 console.log('[P2P] connectWithCode: 开始连接, code=' + code + ', url=' + joinUrl);
                 
-                self._fetchWithRetry(joinUrl, { 
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: password })
-                }, 3, 1000)
-                    .then(function(r){
-                        console.log('[P2P] connectWithCode: HTTP响应, status=' + r.status);
-                        if (r.status === 404) throw new Error('配对码无效或已过期');
-                        if (r.status === 401) throw new Error('密码错误');
-                        if (r.status === 400) throw new Error('该配对码已被使用');
-                        if (r.status === 429) throw new Error('请求过于频繁，请稍后重试');
-                        if (r.status === 503) throw new Error('服务器繁忙，请稍后重试');
-                        return r.json();
-                    })
-                    .then(function(data){
-                        console.log('[P2P] connectWithCode: 配对码校验成功, data=' + JSON.stringify(data));
-                        self._enterRelaySignaling('client', code);
-                        self.addPairedRecipient(code, '已配对设备');
-                    })
-                    .catch(function(e){
-                        self._connecting = false;
-                        updateP2PStatus();
-                        console.error('[P2P] connectWithCode: HTTP配对失败:', e);
-                        self._dispatch('p2p:error', { type: 'notFound', message: e.message || '配对失败' });
-                        showToast('❌ ' + (e.message || '配对失败'));
-                    });
+                return new Promise(function(resolve, reject) {
+                    self._fetchWithRetry(joinUrl, { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: password })
+                    }, 3, 1000)
+                        .then(function(r){
+                            console.log('[P2P] connectWithCode: HTTP响应, status=' + r.status);
+                            if (r.status === 404) throw new Error('配对码无效或已过期');
+                            if (r.status === 401) throw new Error('密码错误');
+                            if (r.status === 400) throw new Error('该配对码已被使用');
+                            if (r.status === 429) throw new Error('请求过于频繁，请稍后重试');
+                            if (r.status === 503) throw new Error('服务器繁忙，请稍后重试');
+                            return r.json();
+                        })
+                        .then(function(data){
+                            console.log('[P2P] connectWithCode: 配对码校验成功, data=' + JSON.stringify(data));
+                            self._enterRelaySignaling('client', code);
+                            self.addPairedRecipient(code, '已配对设备');
+                            resolve();
+                        })
+                        .catch(function(e){
+                            self._connecting = false;
+                            updateP2PStatus();
+                            console.error('[P2P] connectWithCode: HTTP配对失败:', e);
+                            self._dispatch('p2p:error', { type: 'notFound', message: e.message || '配对失败' });
+                            showToast('❌ ' + (e.message || '配对失败'));
+                            reject(e);
+                        });
+                });
             },
 
             // v3.0: Socket.IO 信令入口
@@ -3133,19 +3137,46 @@
                 showToast('📡 连接信令中继...');
                 self._useSig = false;
                 self._connecting = true;
+                
+                // 添加连接超时保护
+                var connectTimeout = setTimeout(function() {
+                    if (self._connecting && !self.isConnected) {
+                        console.warn('[P2P] 连接超时，超时时间30秒');
+                        self._connecting = false;
+                        updateP2PStatus();
+                        showToast('❌ 连接超时，请重试');
+                        self._dispatch('p2p:error', { type: 'timeout', message: '连接超时' });
+                    }
+                }, 30000);
+                
+                var origOnConnect = SocketIOSignaling.onconnect;
                 SocketIOSignaling.onconnect = function() {
                     console.log('[P2P] onconnect 触发, isConnected=' + (window.RealTimeSync ? RealTimeSync.isConnected : 'no_rt') + ', dcState=' + (SocketIOSignaling.dc ? SocketIOSignaling.dc.readyState : 'no_dc') + ', relayActive=' + SocketIOSignaling._relayActive);
+                    // 清除超时
+                    if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+                    
                     if (window.RealTimeSync && !RealTimeSync.isConnected && SocketIOSignaling.dc && SocketIOSignaling.dc.readyState === 'open') {
                         console.log('[P2P v3.0] SocketIO信令连接成功');
                         RealTimeSync._connectSig(SocketIOSignaling.dc);
                     } else {
                         console.warn('[P2P] onconnect 条件未满足: isConnected=' + (RealTimeSync ? RealTimeSync.isConnected : '?') + ', dc=' + (SocketIOSignaling.dc ? SocketIOSignaling.dc.readyState : 'null'));
                     }
+                    // 如果有原始回调，也调用它
+                    if (typeof origOnConnect === 'function') {
+                        origOnConnect();
+                    }
                 };
                 SocketIOSignaling.ondisconnect = function() {
+                    // 清除超时
+                    if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
+                    
                     if (window.RealTimeSync && RealTimeSync.isConnected && RealTimeSync._useSig) {
                         RealTimeSync.isConnected = false;
                         RealTimeSync._dispatch('p2p:disconnected', {});
+                    } else if (window.RealTimeSync && RealTimeSync._connecting) {
+                        // 如果是在连接中断开
+                        RealTimeSync._connecting = false;
+                        updateP2PStatus();
                     }
                 };
                 setTimeout(function() { SocketIOSignaling.connect(code, useLocal); }, 100);
