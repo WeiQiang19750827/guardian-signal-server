@@ -24,6 +24,8 @@
 !guardian-app/config.xml
 !guardian-app/package.json
 guardian-app/www/lib/*
+!guardian-app/www/js/*
+!test_regression.py
 guardian-server/*.log
 guardian-server/node_modules/
 node_modules/
