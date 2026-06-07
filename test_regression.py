@@ -259,6 +259,84 @@ class GuardianRegressionTests:
             log_test("JS函数可用性测试异常", False, str(e))
             return False
 
+    def test_14_role_selection_after_auth(self):
+        """测试14: 模拟授权完成→选择角色→配对页面显示"""
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(INDEX_URL, wait_until="networkidle")
+                time.sleep(0.5)
+
+                # 1. 权限弹窗应可见
+                perm = page.locator("#permissionPrompt")
+                perm_visible = perm.is_visible()
+                log_test("权限弹窗显示", perm_visible)
+                if not perm_visible:
+                    browser.close()
+                    return False
+
+                # 2. 点击"跳过"关闭权限弹窗（模拟跳过/授权完成后的状态）
+                skip_btn = page.locator("#permSkipBtn")
+                if skip_btn.is_visible():
+                    skip_btn.click()
+                    time.sleep(0.3)
+
+                # 验证弹窗已隐藏
+                after_close = page.evaluate(
+                    "document.getElementById('permissionPrompt').style.display"
+                )
+                log_test("权限弹窗已隐藏", after_close == "none")
+
+                # 3. 验证角色选择覆盖层可见
+                overlay = page.locator("#roleSelectionOverlay")
+                overlay_visible = overlay.is_visible()
+                log_test("角色选择覆盖层可见(授权后)", overlay_visible)
+                if not overlay_visible:
+                    browser.close()
+                    return False
+
+                # 4. 验证selectRole函数在window上
+                selectRole_exists = page.evaluate(
+                    "typeof selectRole === 'function'"
+                )
+                log_test("selectRole函数可用", selectRole_exists)
+                if not selectRole_exists:
+                    browser.close()
+                    return False
+
+                # 5. 点击"监护人"角色
+                guardian_div = page.locator(
+                    "#roleSelectionOverlay div[onclick*=\"selectRole('guardian')\"]"
+                ).first
+                if guardian_div.is_visible():
+                    guardian_div.click()
+                    time.sleep(0.5)
+                    log_test("点击监护人角色", True)
+                else:
+                    log_test("点击监护人角色", False, "not visible")
+                    browser.close()
+                    return False
+
+                # 6. 验证角色选择覆盖层已消失 (selectRole将其隐藏)
+                overlay_gone = page.evaluate(
+                    "document.getElementById('roleSelectionOverlay').style.display === 'none' || "
+                    "document.getElementById('roleSelectionOverlay').style.opacity === '0'"
+                )
+                log_test("角色覆盖层已隐藏", overlay_gone)
+
+                # 7. 验证配对页面存在 (selectRole导航到guardian-pairings)
+                pairing_page = page.locator("#guardian-pairings")
+                pairing_visible = pairing_page.is_visible()
+                log_test("配对管理页面可见", pairing_visible)
+
+                browser.close()
+                return all([perm_visible, overlay_visible, selectRole_exists,
+                            overlay_gone])
+        except Exception as e:
+            log_test("授权→角色选择流程测试异常", False, str(e))
+            return False
+
     def test_99_summary(self):
         """汇总报告"""
         total = TEST_RESULTS["passed"] + TEST_RESULTS["failed"] + TEST_RESULTS["skipped"]
@@ -293,6 +371,7 @@ def run_all_tests():
     t.test_10_guardian_pairing_page_loads()
     t.test_11_guardian_generate_code_ui()
     t.test_13_js_functions_available()
+    t.test_14_role_selection_after_auth()
 
     # === 汇总 ===
     print("\n")
