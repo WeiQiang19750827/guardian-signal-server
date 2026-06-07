@@ -2542,7 +2542,6 @@
                     if (_origSend3) { _origSend3.call(this, data); }
                 }
             };
-        try {
         var _origDisconnect3 = RealTimeSync.disconnect;
         RealTimeSync.disconnect = function() {
             this._stopHeartbeat();
@@ -2552,7 +2551,7 @@
             localStorage.removeItem('guardian_p2p_connection');
             this._dispatch('p2p:disconnected', {});
         };
-        } catch(e) { console.warn('[P2P] disconnect monkey-patch failed:', e); }
+        } catch(e) { console.warn('[P2P] monkey-patches failed:', e); }
         // ========== 数据持久化服务 ==========
         const DataStore = {
             _cache: {},

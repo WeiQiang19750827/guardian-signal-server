@@ -230,6 +230,35 @@ class GuardianRegressionTests:
             log_test("模块加载测试异常", False, str(e))
             return False
 
+    def test_13_js_functions_available(self):
+        """测试13: 关键JS函数在页面加载后可用（检测语法错误）"""
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(INDEX_URL, wait_until="networkidle")
+                time.sleep(0.5)
+
+                checks = [
+                    ("typeof selectRole === 'function'", "selectRole"),
+                    ("typeof DataStore === 'object'", "DataStore"),
+                    ("typeof RealTimeSync === 'object'", "RealTimeSync"),
+                    ("typeof showToast === 'function'", "showToast"),
+                    ("typeof navigateTo === 'function'", "navigateTo"),
+                ]
+                all_ok = True
+                for expr, label in checks:
+                    exists = page.evaluate(expr)
+                    log_test(f"JS函数 {label} 可用", exists)
+                    if not exists:
+                        all_ok = False
+
+                browser.close()
+                return all_ok
+        except Exception as e:
+            log_test("JS函数可用性测试异常", False, str(e))
+            return False
+
     def test_99_summary(self):
         """汇总报告"""
         total = TEST_RESULTS["passed"] + TEST_RESULTS["failed"] + TEST_RESULTS["skipped"]
@@ -263,6 +292,7 @@ def run_all_tests():
     t.test_12_module_loading_no_404()
     t.test_10_guardian_pairing_page_loads()
     t.test_11_guardian_generate_code_ui()
+    t.test_13_js_functions_available()
 
     # === 汇总 ===
     print("\n")
